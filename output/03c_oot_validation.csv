@@ -1,0 +1,4 @@
+split,train_auc,test_auc,train_avg_predicted_pd,test_avg_predicted_pd,test_observed_default_rate,psi_train_vs_test
+"A) out-of-time, same regime: train 2007 -> test 2008",0.773,0.8016,0.1374,0.0869,0.0735,0.2411
+B) out-of-regime: train crisis 2007+08 -> test calm 2015,0.7967,0.6979,0.1055,0.0251,0.0242,1.6339
+C) reverse what-if (NOT a forward test): train calm 2015 -> test crisis,0.7227,0.7749,0.0242,0.0736,0.1055,1.3452

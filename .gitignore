@@ -1,0 +1,22 @@
+# ---- Freddie Mac SFLLD raw data: NEVER commit (redistribution restricted) ----
+raw data/
+data/raw/
+data/source/
+
+# Derived/processed tables (regenerate from raw via notebooks 00-01)
+data/processed/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Jupyter / system
+.ipynb_checkpoints/
+.DS_Store
+Thumbs.db
+
+# Large intermediates
+*.parquet
+*.pkl

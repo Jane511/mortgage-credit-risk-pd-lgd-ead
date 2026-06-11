@@ -1,0 +1,15 @@
+driver,band,default_rate
+credit_score,<620,0.2901
+credit_score,620-659,0.2181
+credit_score,660-699,0.1438
+credit_score,700-739,0.0873
+credit_score,740-779,0.0452
+credit_score,780+,0.0201
+ltv,<60,0.0314
+ltv,60-69,0.0621
+ltv,70-79,0.0858
+ltv,80-89,0.0882
+ltv,90+,0.1284
+vintage,2007,0.1374
+vintage,2008,0.0735
+vintage,2015,0.0242

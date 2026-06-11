@@ -1,0 +1,5 @@
+measure,baseline,stressed
+PD,0.0242,0.1055
+LGD,0.2464,0.5673
+expected_loss,66554344.0,668327713.0
+EL_uplift_x,1.0,10.04

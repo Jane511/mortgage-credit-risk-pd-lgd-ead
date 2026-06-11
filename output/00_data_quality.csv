@@ -1,0 +1,4 @@
+vintage_year,loans,defaults,disposed_defaults,median_credit_score,median_original_upb,default_rate
+2007,50000,6870,4479,732.0,160000.0,0.1374
+2008,50000,3677,2134,753.0,183000.0,0.0735
+2015,50000,1209,136,760.0,200000.0,0.0242
