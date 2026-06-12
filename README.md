@@ -52,6 +52,46 @@ loans default and how much is lost each time.**
 
 ---
 
+## Key charts
+
+*All charts are regenerated from the committed pipeline outputs in [output/](output/)
+by [reports/make_figures.py](reports/make_figures.py) — aggregated results only, no
+raw loan records.*
+
+### 1. Expected loss: baseline vs stressed (the headline)
+![Expected loss rises about ten times under a downturn scenario](reports/figures/expected_loss_base_vs_stress.png)
+
+**What this shows:** the whole portfolio's expected loss in a calm market (~$67m) versus a crisis-like downturn (~$668m).
+**Why it matters:** it is the stress story in one picture — losses jump ~10× because the chance of default and the loss per default get worse *together*.
+
+### 2. Default rate by origination year
+![Default rate by vintage: 13.7% in 2007 and 7.4% in 2008 versus 2.4% in 2015](reports/figures/default_rate_by_vintage.png)
+
+**What this shows:** how often loans defaulted, split by the year they were written.
+**Why it matters:** the 2007/08 crisis cohorts default far more often than the calm 2015 book — a real observed downturn, not an assumption.
+
+### 3. Loss given default: calm vs downturn
+![LGD more than doubles in a downturn, from 25% to 57%](reports/figures/lgd_calm_vs_downturn.png)
+
+**What this shows:** the share of the loan actually lost after a default, measured from Freddie Mac's real loss records, and the model's match to it.
+**Why it matters:** loss *severity* more than doubles in a downturn — and the modelled line tracks the observed one, so the LGD is grounded in reality.
+
+### 4. PD calibration by rating grade
+![Predicted versus observed default rate across rating grades A to H, closely aligned](reports/figures/pd_calibration_by_grade.png)
+
+**What this shows:** for each risk grade (A safest → H riskiest), the predicted default probability against what actually happened.
+**Why it matters:** the two lines sit almost on top of each other and rise in order — the scorecard both *ranks* and *sizes* risk correctly.
+
+### 5. Default rate by credit score
+![Default rate falls from 29% below 620 to 2% above 780 as credit score rises](reports/figures/default_rate_by_credit_score.png)
+
+**What this shows:** default rate across credit-score bands.
+**Why it matters:** risk falls steeply and smoothly as scores rise (29% → 2%) — textbook behaviour that confirms the data and definitions are right.
+
+*Full methodology and code: see the notebooks in [notebooks/](notebooks/).*
+
+---
+
 ## What I did (the process, step by step)
 
 Each step is one notebook, written so a non-technical reader can follow the top
