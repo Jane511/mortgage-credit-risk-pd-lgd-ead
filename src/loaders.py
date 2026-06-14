@@ -51,7 +51,7 @@ _SVCG_USECOLS = [
     "mi_recoveries", "net_sales_proceeds", "non_mi_recoveries", "expenses",
     "legal_costs", "maintenance_preservation_costs", "taxes_and_insurance",
     "miscellaneous_expenses", "actual_loss_calculation", "zero_balance_removal_upb",
-    "delinquent_accrued_interest",
+    "delinquent_accrued_interest", "zero_balance_effective_date",
 ]
 
 # Money fields that appear once (at disposition) -> safe to sum to loan level.
@@ -114,12 +114,19 @@ def summarize_performance(path):
         **{c: (c, "sum") for c in _MONEY_ONE_TIME},
     ).reset_index()
 
-    # Disposition (zero-balance) code on the credit-event row, if any.
+    # Disposition (zero-balance) code + exact effective date on the credit-event
+    # row, if any. The effective date is the disposition month (YYYYMM); P0 surfaces
+    # it so the LGD discounting step has an exact workout end-point, falling back to
+    # last_period downstream when it is sparse/garbled.
     ce = df[df["credit_event"]].sort_values(
         ["loan_sequence_number", "monthly_reporting_period"]
     ).groupby("loan_sequence_number", as_index=False).first()[
-        ["loan_sequence_number", "zero_balance_code"]
-    ].rename(columns={"zero_balance_code": "disposition_zb_code"})
+        ["loan_sequence_number", "zero_balance_code", "zero_balance_effective_date"]
+    ].rename(columns={
+        "zero_balance_code": "disposition_zb_code",
+        "zero_balance_effective_date": "disposition_period",
+    })
+    ce["disposition_period"] = pd.to_numeric(ce["disposition_period"], errors="coerce")
 
     out = agg.merge(first_def, on="loan_sequence_number", how="left")
     out = out.merge(ce, on="loan_sequence_number", how="left")

@@ -40,6 +40,24 @@ EXPENSE_SUBCOMPONENTS = [
 ]
 
 
+def yyyymm_to_months(s):
+    """Convert YYYYMM integers to an absolute month count (year*12 + month)."""
+    s = pd.to_numeric(s, errors="coerce")
+    year = (s // 100)
+    month = (s % 100)
+    return year * 12 + month
+
+
+def months_between(start_yyyymm, end_yyyymm):
+    """Whole months from start to end (YYYYMM each), floored at 0; NaN-safe.
+
+    YYYYMM integers cannot be subtracted directly (200901 - 200812 must equal 1,
+    not 89), so convert both to an absolute month count first.
+    """
+    diff = yyyymm_to_months(end_yyyymm) - yyyymm_to_months(start_yyyymm)
+    return diff.clip(lower=0)
+
+
 def parse_delinquency(series):
     """Delinquency status is a TEXT code, not a number.
 

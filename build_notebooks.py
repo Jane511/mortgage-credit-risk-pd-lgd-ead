@@ -131,6 +131,35 @@ df['credit_score_band'] = pd.cut(df['credit_score'], [0, 620, 660, 700, 740, 780
                                  right=False, labels=['<620', '620-659', '660-699', '700-739', '740-779', '780+'])
 df['ltv_band'] = pd.cut(df['original_ltv'], [0, 60, 70, 80, 90, 200],
                         right=False, labels=['<60', '60-69', '70-79', '80-89', '90+'])"""),
+    md("""### The workout period (input to the discounting step)
+
+When a loan defaults the money is **not** lost all at once -- the lender works
+through foreclosure and sale over many months, and a dollar recovered years later
+is worth less than a dollar today. The **workout period** is how long that takes:
+from the **default month** to the **disposition month**.
+
+- The **default month** (`default_period`) already comes straight from the data --
+  the first month the loan was 180+ days late or hit a loss event.
+- The **disposition month** (`disposition_period`) uses the **exact zero-balance
+  effective date** where Freddie Mac records it, and falls back automatically to
+  the **last servicing month** (`last_period`) when that date is missing.
+
+`months_to_resolution` is that gap in whole months, and it is only meaningful for
+**disposed defaults** (NaN everywhere else). Together with `original_interest_rate`
+it is one of the two inputs the economic-loss discounting in notebook 01 /
+`definitions.economic_loss()` will use (see LGD alignment task P1-1)."""),
+    code("""# Disposition month: exact zero-balance date if loaded, else last servicing month.
+if 'disposition_period' in df.columns:
+    df['disposition_period'] = df['disposition_period'].fillna(df['last_period'])
+else:
+    df['disposition_period'] = df['last_period']
+
+# Workout length in months, only meaningful for disposed defaults.
+df['months_to_resolution'] = np.where(
+    df['disposed'],
+    d.months_between(df['default_period'], df['disposition_period']),
+    np.nan,
+)"""),
     code("""# Keep one clean analysis row per loan and cache it for later notebooks.
 base_cols = [
     'loan_sequence_number', 'vintage_year', 'credit_score', 'original_ltv',
@@ -138,10 +167,20 @@ base_cols = [
     'original_upb', 'loan_purpose', 'occupancy_status', 'channel', 'number_of_borrowers',
     'credit_score_band', 'ltv_band', 'ever_default', 'disposed', 'max_delinq_status',
     'ead', 'realised_loss', 'lgd',
+    'default_period', 'disposition_period', 'months_to_resolution',
 ]
 base = df[base_cols].copy()
 base.to_parquet('data/processed/analysis_base.parquet')
 print('analysis base:', base.shape)"""),
+    code("""# Sanity-check the new workout-length field on disposed defaults only.
+wr = df.loc[df['disposed'], 'months_to_resolution']
+print('disposed defaults with a usable months_to_resolution:', int(wr.notna().sum()))
+print('min / median / max months: {:.0f} / {:.0f} / {:.0f}'.format(
+    wr.min(), wr.median(), wr.max()))
+print('share resolved in 0 months:', round(float((wr == 0).mean()), 4))
+# Confirm the field is blank for everyone who did NOT dispose-as-default.
+print('non-disposed loans with a non-NaN value (should be 0):',
+      int(df.loc[~df['disposed'], 'months_to_resolution'].notna().sum()))"""),
     code("""# Results table: default rate and average LGD by vintage (downturn vs calm).
 tbl = df.groupby('vintage_year').agg(
     loans=('loan_sequence_number', 'size'),
