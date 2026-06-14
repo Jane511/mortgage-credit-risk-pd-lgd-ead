@@ -714,6 +714,27 @@ nothing further). The true unbiased LGD sits inside that band. Because a large s
 180-DPD "defaults" cure or prepay, the best estimate stays close to the disposed-only
 figure while the upper bound shows how much resolution bias *could* matter -- the
 bracketed disclosure APG 113 para 126 asks for, rather than dropping the open loans."""),
+    md("""### Margin of conservatism overlay (P2-2)
+
+CRE36.67 / Step 11 require an explicit **margin of conservatism (MoC)** where the
+data is thin and the observation window short -- which is exactly this setup: three
+discrete vintages, ~7k disposed defaults, and the open-workout uncertainty just shown.
+The MoC is an **overlay**: it sits on the **APRA capital view only**, on top of the
+model, and is **never** mixed into the model itself or the IFRS 9 figures."""),
+    code("""# P2-2: +5 LGD-point margin of conservatism, APRA view only (an overlay).
+MOC_PP = 0.05  # documented add-on for thin data + incomplete-workout uncertainty.
+moc = disposed.groupby('regime').agg(lgd_apra=('lgd_apra', 'mean')).reset_index()
+moc['lgd_apra_with_moc'] = d.add_moc(moc['lgd_apra'].values, MOC_PP).round(4)
+moc['lgd_apra'] = moc['lgd_apra'].round(4)
+moc['moc_points'] = MOC_PP
+save_csv(moc, 'output/04_moc_overlay.csv')
+moc"""),
+    md("""**Reading the MoC table (P2-2).** `lgd_apra_with_moc` is simply the APRA-view
+LGD plus a documented **+5 LGD-point** margin. It is deliberately small and explicit,
+and it lives outside the model so it can be reviewed, dialled, or removed without
+re-fitting anything. Justification: only three vintages (short of a full cycle) and a
+modest disposed-default count mean the point estimate carries real estimation
+uncertainty; the MoC is the conservative buffer the framework expects for that."""),
 ])
 
 

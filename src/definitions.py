@@ -178,3 +178,12 @@ def apply_lgd_floor(lgd, floor=0.20):
     separate APRA-view column -- never to the IFRS 9 realised/modelled LGD."""
     lgd = np.asarray(lgd, dtype=float)
     return np.where(np.isnan(lgd), lgd, np.maximum(lgd, floor))
+
+
+def add_moc(lgd, add_pp=0.05, cap=1.10):
+    """Margin of conservatism overlay (CRE36.67 / Step 11). An ADDITIVE add-on, in
+    LGD points, to cover the thin data and short observation window (3 vintages) and
+    the incomplete-workout uncertainty. It is an OVERLAY applied only to the APRA
+    capital view -- never inside the model and never on the IFRS 9 figures. NaN-safe."""
+    lgd = np.asarray(lgd, dtype=float)
+    return np.where(np.isnan(lgd), lgd, np.minimum(lgd + add_pp, cap))
