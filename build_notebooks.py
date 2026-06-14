@@ -655,6 +655,65 @@ than the calm one (roughly a 2x ratio), which is the textbook signature of a
 the LGD *estimate* used for capital/EL must reflect **downturn** conditions rather
 than the long-run average. Notebook 06 therefore carries an explicit downturn-LGD
 variant of Expected Loss alongside the through-the-cycle one."""),
+    md("""### Incomplete workouts -- resolution bias (P2-1)
+
+The model above uses only **disposed** (fully resolved) loans. But APG 113 para 126
+says LGD must also reflect **defaulted-but-not-yet-resolved** loans, with *estimated*
+future recoveries, a **sensitivity** on that estimate, and a **maximum workout
+period**. Leaving open workouts out biases LGD because the quick, clean resolutions
+finish first and the messy ones are still open. The next cells quantify that bias."""),
+    code("""# P2-1: count open workouts and estimate their LGD with a documented cap.
+# APG 113 para 126: include incomplete workouts with estimated future recoveries.
+from src import definitions as d
+MAX_WORKOUT_MONTHS = 36  # documented cap: assume no further recovery beyond this.
+defaulted = base[base['ever_default']].copy()
+open_wf = defaulted[~defaulted['disposed']].copy()
+frac_open = len(open_wf) / max(len(defaulted), 1)
+print(f'defaulted loans: {len(defaulted)}')
+print(f'open workouts (defaulted, not yet disposed): {len(open_wf)} = {frac_open:.1%} of defaults')"""),
+    md("""**Important nuance:** here "default" = first month at 180+ DPD *or* a loss
+disposition. Most defaulted-but-not-disposed loans are 180-DPD loans that later
+**cured or prepaid** with little or no loss -- they are not all genuine open
+foreclosures. So assigning every one of them the full ~56% segment severity is an
+*upper bound*, not a best estimate. We show both, and a cure-aware best estimate in
+between, so the bias is bracketed honestly."""),
+    code("""# Best estimate vs conservative upper bound for the open workouts.
+open_wf['regime'] = np.where(open_wf['vintage_year'].isin([2007, 2008]), 'downturn (2007-08)', 'calm (2015)')
+seg_lgd = disposed.groupby('regime')['lgd'].mean()
+open_wf['age_months'] = d.months_between(open_wf['default_period'], open_wf['disposition_period'])
+# P(eventually disposes WITH a loss | defaulted): the empirical loss-disposition rate.
+loss_disp_rate = len(disposed) / max(len(defaulted), 1)
+seg_sev = open_wf['regime'].map(seg_lgd).fillna(disposed['lgd'].mean())
+# Best estimate: expected severity = P(loss disposition) x segment severity (most cure).
+open_wf['lgd_best'] = loss_disp_rate * seg_sev
+# Conservative upper bound: assume every open default disposes at full segment
+# severity; loans already open beyond the cap recover nothing further (LGD -> 1).
+open_wf['lgd_upper'] = seg_sev
+open_wf.loc[open_wf['age_months'] > MAX_WORKOUT_MONTHS, 'lgd_upper'] = 1.0
+print(f'P(loss disposition | default) = {loss_disp_rate:.3f}  (the rest cure/prepay)')"""),
+    code("""# Sensitivity: portfolio mean LGD with vs without the open workouts (the 'with
+# and without' APG 113 para 126 asks for), bracketed best-estimate to upper-bound.
+disposed_only = disposed['lgd'].mean()
+incl_best = pd.concat([disposed['lgd'], open_wf['lgd_best']]).mean()
+incl_upper = pd.concat([disposed['lgd'], open_wf['lgd_upper']]).mean()
+sens = pd.DataFrame([
+    {'basis': 'disposed only (current LGD, resolution-biased)', 'mean_lgd': round(float(disposed_only), 4)},
+    {'basis': 'incl. open workouts @ cure-aware best estimate', 'mean_lgd': round(float(incl_best), 4)},
+    {'basis': 'incl. open workouts @ conservative upper bound', 'mean_lgd': round(float(incl_upper), 4)},
+])
+sens['open_workout_share_of_defaults'] = round(frac_open, 4)
+sens['max_workout_months'] = MAX_WORKOUT_MONTHS
+save_csv(sens, 'output/04_incomplete_workouts.csv')
+sens"""),
+    md("""**Reading the sensitivity (P2-1).** The first row is today's disposed-only
+LGD. The second folds the open workouts back in at a **cure-aware best estimate**
+(expected severity = P(eventual loss disposition) x segment severity), and the third
+at a **conservative upper bound** (every open default disposes at full severity; any
+loan already open beyond the **36-month maximum workout period** is assumed to recover
+nothing further). The true unbiased LGD sits inside that band. Because a large share of
+180-DPD "defaults" cure or prepay, the best estimate stays close to the disposed-only
+figure while the upper bound shows how much resolution bias *could* matter -- the
+bracketed disclosure APG 113 para 126 asks for, rather than dropping the open loans."""),
 ])
 
 
