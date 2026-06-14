@@ -1,5 +1,6 @@
-# ---- Internal build spec / prompt (not part of the public project) ----
-PROJECT_BUILD.md
+# ---- Internal build specs / prompts (not part of the public project) ----
+PROJECT_BUILD*.md
+CLAUDE_CODE_INSTRUCTIONS*.md
 
 # ---- Freddie Mac SFLLD raw data: NEVER commit (redistribution restricted) ----
 raw data/
