@@ -1,0 +1,3 @@
+view,lgd_basis,total_expected_loss,uplift_x
+through-the-cycle (baseline),modelled lgd_hat,1110842976.0,1.0
+downturn LGD (APS 113 Att D LGD 4-5),"max(lgd_hat, 0.567)",1317507030.0,1.19

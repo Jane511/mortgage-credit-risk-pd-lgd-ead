@@ -970,6 +970,55 @@ el_summary = base.groupby('ifrs9_stage').agg(
 ).reset_index().round(2)
 save_csv(el_summary, 'output/06_expected_loss.csv')
 el_summary"""),
+    md("""### Downturn-LGD variant of Expected Loss (P2-3)
+
+Notebook 04 showed loss severity is strongly **cyclical** (~25% calm vs ~57% crisis).
+APS 113 Att D LGD paras 4-5 say that where severity is cyclical, the LGD *estimate*
+must reflect **downturn** conditions, not the through-the-cycle average. So alongside
+the baseline EL we compute a **downturn-LGD variant**, lifting every loan's LGD to at
+least the crisis-regime realised severity. This is the conservative figure the
+framework expects a capital/EL report to show."""),
+    code("""# P2-3: downturn-LGD variant of EL. Lift each loan's LGD to >= the crisis-regime
+# realised severity (the observed downturn LGD), then recompute Expected Loss.
+downturn_lgd = float(base.loc[base['disposed'] & base['vintage_year'].isin([2007, 2008]), 'lgd'].mean())
+base['lgd_downturn'] = np.maximum(base['lgd_hat'], downturn_lgd)
+base['expected_loss_downturn'] = base['pd_hat'] * base['lgd_downturn'] * base['ead_loan']
+el_variant = pd.DataFrame([
+    {'view': 'through-the-cycle (baseline)', 'lgd_basis': 'modelled lgd_hat',
+     'total_expected_loss': round(float(base['expected_loss'].sum()), 0)},
+    {'view': 'downturn LGD (APS 113 Att D LGD 4-5)', 'lgd_basis': f'max(lgd_hat, {downturn_lgd:.3f})',
+     'total_expected_loss': round(float(base['expected_loss_downturn'].sum()), 0)},
+])
+el_variant['uplift_x'] = (el_variant['total_expected_loss'] /
+                          el_variant['total_expected_loss'].iloc[0]).round(2)
+save_csv(el_variant, 'output/06_el_downturn_variant.csv')
+el_variant"""),
+    md("""### Best estimate of EL for already-defaulted (Stage 3) loans (P2-4)
+
+APS 113 Att D para 11 / Part 4.3: for loans **already in default** (Stage 3), you must
+form a **best estimate of expected loss for that loan given current conditions** --
+mechanically applying the model's average LGD is "not acceptable". We replace the
+mechanical PD x LGD with: the loan's **realised** LGD where its workout is materially
+complete (disposed), otherwise the **segment downturn LGD**; since the loan is already
+in default its PD is 1, so EL = best-estimate LGD x EAD."""),
+    code("""# P2-4: best-estimate EL for Stage 3 (already-defaulted) loans.
+stage3 = base['ifrs9_stage'] == 3
+best_lgd = np.where(base['disposed'] & base['lgd'].notna(), base['lgd'], downturn_lgd)
+base['el_stage3_bestestimate'] = np.where(stage3, best_lgd * base['ead_loan'], np.nan)
+s3 = pd.DataFrame([{
+    'stage3_loans': int(stage3.sum()),
+    'el_mechanical_pd_x_lgd': round(float(base.loc[stage3, 'expected_loss'].sum()), 0),
+    'el_best_estimate': round(float(np.nansum(base['el_stage3_bestestimate'])), 0),
+}])
+s3['ratio_best_vs_mechanical'] = round(s3['el_best_estimate'] / s3['el_mechanical_pd_x_lgd'], 2)
+save_csv(s3, 'output/06_stage3_best_estimate.csv')
+s3"""),
+    md("""**Reading the Stage 3 table (P2-4).** The mechanical column applies the model
+PD x LGD even to loans that have *already* defaulted (so its PD < 1 understates the
+loss); the best-estimate column uses each defaulted loan's realised loss where the
+workout is complete and the downturn LGD otherwise, with PD = 1. The best estimate is
+materially larger -- which is the point: a defaulted loan's expected loss should be
+built from its own resolution, not a portfolio-average model output."""),
     code("""# Worked example: show PD x LGD x EAD = EL for a single representative loan.
 ex = base.sort_values('expected_loss', ascending=False).iloc[100]
 print('Worked example loan:', ex['loan_sequence_number'])
