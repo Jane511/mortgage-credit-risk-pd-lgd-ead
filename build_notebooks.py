@@ -1129,6 +1129,9 @@ collapsed to one row per loan. Raw data is not redistributed in this repo.
 - *PD* = logistic regression on origination features (interpretable scorecard).
 - *LGD* = two-stage model (P(loss) x severity) on **realised** losses from
   defaulted, disposed loans; reconciled to Freddie Mac's own loss field (corr ~0.99).
+  Extended to **economic (discounted) loss**, an **APRA capital view** (MI excluded,
+  20% high-LVR reduction, 20% floor), a margin of conservatism, a downturn LGD, and an
+  **independent LGD validation** (notebook 04b) -- see the framework-alignment notes below.
 - *EAD* = outstanding balance at default (no CCF -- a term loan has no undrawn limit).
 - *EL* = PD x LGD x EAD, staged under IFRS 9 / AASB 9.
 - *Stress* = downturn multipliers observed in the 2007/2008 crisis vintages.
@@ -1169,6 +1172,46 @@ psi_tbl"""),
 shifted materially from the reference book -- here, the crisis vintages look
 very different from the calm one, which would trigger a model review in
 production. This is the kind of monitoring that keeps a deployed model honest."""),
+    md("""## Framework alignment notes (APS 113 / APG 113 / Basel / WP14)
+
+These notes record where the build sits against the regulatory framework. The LGD
+work (notebooks 01, 04, 04b, 06) now implements economic-loss discounting, the
+APRA-view overlays (MI exclusion, 20% reduction, 20% floor), a margin of
+conservatism, downturn LGD, a Stage 3 best estimate, and an independent LGD
+validation. The remaining items below are **documentation choices**, stated
+explicitly so a reviewer can see they were considered.
+
+**Default definition (Step 2 / APS 113 Att D para 5).** This project defines default
+at **180 days past due** (status 6+) or a credit-event zero-balance code. 180 DPD is a
+common *mortgage* convention and is what the Freddie Mac data cleanly supports. The
+APS 220 / Basel reference point is **90 DPD**; we treat the 180-DPD choice as a "broad
+equivalence" adjustment and note that a 90-DPD definition would classify more loans as
+defaulted earlier (higher PD, generally lower average LGD as more cures are captured).
+A 90-DPD sensitivity flag could be added from the same delinquency field if required.
+
+**Cure rules (Step 2).** A loan is counted as defaulted if it *ever* reached 180+ DPD
+within its observed history; we do **not** net out subsequent cures in the default flag
+(an observed-to-date definition). The resolution-bias analysis in notebook 04 (P2-1)
+shows the practical effect: a large share of 180-DPD "defaults" cure or prepay with
+little loss, which is why the cure-aware best estimate sits well below the disposed-only
+LGD. A production model would add an explicit cure/re-default (probation) window.
+
+**Borrower/collateral correlation (Part 4.1).** In mortgages, falling house prices both
+*trigger* defaults (negative equity) and *deepen* losses (smaller recovery on sale), so
+PD and LGD are positively correlated in a downturn. We do not model that correlation
+parametrically; instead the **downturn LGD** (notebook 04/06) and the joint PD-and-LGD
+stress (notebook 07) are the conservative treatment of it -- both drivers worsen together.
+
+**Observation period (Step 7).** Three discrete vintages (2007, 2008, 2015) is **short
+of a full economic cycle**, though it deliberately spans both a severe downturn and a
+calm year. This short window is precisely why the **margin of conservatism** (P2-2) is
+applied and why benchmarking/qualitative review carry extra weight (APG 113 para 140(c)).
+
+**Segmentation (Step 1).** Current severity drivers are LTV, credit score, loan size
+(UPB) and the downturn indicator. In production the LGD segmentation would extend to
+**loan purpose, occupancy, and with/without-LMI** (and likely geography/house-price
+region), each of which plausibly shifts recovery; they are noted here as the natural
+next segments rather than fitted, given the sample size."""),
 ])
 
 def _flush():
