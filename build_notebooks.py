@@ -659,6 +659,142 @@ variant of Expected Loss alongside the through-the-cycle one."""),
 
 
 # ======================================================================
+# 04b -- LGD validation (out-of-time, backtest, discrimination, stability)
+# ======================================================================
+write("04b_LGD_Validation.ipynb", [
+    md("""# 04b -- LGD validation
+
+**What this notebook does (plain English):** Part 5 of the framework (APS 113
+Validation paras 1-6; APG 113 para 140's eight elements; WP14 Section IV) says an
+LGD model must be **independently validated**, just like a PD model. The repo
+already validates PD (notebook 03c + PSI) but had **no LGD validation** -- the most
+visible gap to a credit-risk reviewer. This notebook closes it, mirroring the style
+of `03c_PD_OutOfTime_Validation.ipynb`:
+
+1. **Out-of-time / out-of-regime** -- fit the two-stage LGD on the crisis vintages
+   and predict the calm one, then the reverse.
+2. **Predicted-vs-realised backtest at cohort level** -- by predicted-LGD decile,
+   not loan-by-loan.
+3. **Discrimination** -- how well predicted severity rank-orders realised severity.
+4. **Stability** -- drop each vintage in turn and watch the estimate move.
+5. **Benchmarking note** -- because internal data is thin, benchmarking and
+   qualitative review carry more weight than backtesting (APG 113 para 140(c); WP14).
+
+**Headline result:** the LGD model **rank-orders** severity but, like PD, its
+**level is regime-dependent** -- a model trained only on the calm 2015 book badly
+**under-predicts** downturn severity, which is exactly why a downturn LGD is used."""),
+    code(BOOTSTRAP),
+    code("""# LGD is validated only on defaulted, DISPOSED loans (the loans with a real
+# settled loss). Reuse the same two-stage model the production notebook 04 uses.
+import pandas as pd
+import numpy as np
+from src.models import TwoStageLGD
+from src.output import save_csv
+base = pd.read_parquet('data/processed/analysis_base.parquet')
+disposed = base[base['disposed'] & base['lgd'].notna()].copy()
+print('disposed defaults available for LGD validation:', len(disposed))
+print('by vintage:'); print(disposed['vintage_year'].value_counts().sort_index())"""),
+    code("""# One out-of-time split: fit the LGD model on the TRAIN vintages only, then
+# predict the held-out TEST vintage. No leakage -- the test year never trains.
+def oot_lgd(train_years, test_years, label):
+    tr = disposed[disposed['vintage_year'].isin(train_years)]
+    te = disposed[disposed['vintage_year'].isin(test_years)]
+    model = TwoStageLGD().fit(tr)
+    pred = model.predict(te)
+    return {
+        'split': label,
+        'n_test': len(te),
+        'observed_lgd': round(float(te['lgd'].mean()), 4),
+        'predicted_lgd': round(float(np.mean(pred)), 4),
+        'pred_minus_obs': round(float(np.mean(pred) - te['lgd'].mean()), 4),
+    }"""),
+    code("""# Forward out-of-regime test + the reverse 'what-if' that exposes the blind spot.
+oot_rows = [
+    oot_lgd([2007, 2008], [2015], 'A) train crisis 2007+08 -> test calm 2015'),
+    oot_lgd([2015], [2007, 2008], 'B) reverse: train calm 2015 -> test crisis (under-predicts)'),
+]
+oot = pd.DataFrame(oot_rows)
+oot"""),
+    code("""# Cohort backtest: fit on everything, bucket disposed defaults by PREDICTED-LGD
+# decile, and compare mean predicted vs mean realised in each bucket (cohort-level,
+# never loan-by-loan -- WP14 warns point-in-time realised LGD is noisy per loan).
+full = TwoStageLGD().fit(disposed)
+disposed['lgd_hat'] = full.predict(disposed)
+disposed['pred_decile'] = pd.qcut(disposed['lgd_hat'], 10, duplicates='drop', labels=False) + 1
+backtest = disposed.groupby('pred_decile').agg(
+    n=('lgd', 'size'),
+    mean_predicted=('lgd_hat', 'mean'),
+    mean_realised=('lgd', 'mean'),
+).reset_index().round(4)
+backtest['gap'] = (backtest['mean_predicted'] - backtest['mean_realised']).round(4)
+backtest"""),
+    code("""# Discrimination on the loss-only loans: does higher predicted severity line up
+# with higher realised severity? Spearman rank correlation + R^2.
+loss_only = disposed[disposed['lgd'] > 0.05]
+spearman = float(loss_only['lgd_hat'].corr(loss_only['lgd'], method='spearman'))
+ss_res = float(((loss_only['lgd'] - loss_only['lgd_hat']) ** 2).sum())
+ss_tot = float(((loss_only['lgd'] - loss_only['lgd'].mean()) ** 2).sum())
+r2 = 1 - ss_res / ss_tot
+print(f'Spearman(predicted, realised) on loss-only loans: {spearman:.3f}')
+print(f'R^2 of predicted vs realised severity            : {r2:.3f}')"""),
+    code("""# Stability: re-fit dropping each vintage in turn and see how the overall mean
+# predicted LGD moves -- the 'stability analysis' WP14 asks for.
+all_pred = float(TwoStageLGD().fit(disposed).predict(disposed).mean())
+stab_rows = [{'configuration': 'all vintages', 'mean_predicted_lgd': round(all_pred, 4),
+              'shift_vs_all': 0.0}]
+for y in sorted(disposed['vintage_year'].unique()):
+    sub = disposed[disposed['vintage_year'] != y]
+    mp = float(TwoStageLGD().fit(sub).predict(sub).mean())
+    stab_rows.append({'configuration': f'drop {y}', 'mean_predicted_lgd': round(mp, 4),
+                      'shift_vs_all': round(mp - all_pred, 4)})
+stability = pd.DataFrame(stab_rows)
+stability"""),
+    code("""# Combine the headline validation results into one saved table.
+val = pd.concat([
+    oot.assign(section='out_of_time').rename(columns={'split': 'detail'})[
+        ['section', 'detail', 'n_test', 'observed_lgd', 'predicted_lgd', 'pred_minus_obs']],
+    stability.assign(section='stability', n_test=np.nan).rename(
+        columns={'configuration': 'detail', 'mean_predicted_lgd': 'predicted_lgd'})[
+        ['section', 'detail', 'n_test', 'predicted_lgd']],
+    pd.DataFrame([{'section': 'discrimination', 'detail': 'spearman / R2 on loss-only',
+                   'observed_lgd': round(spearman, 4), 'predicted_lgd': round(r2, 4)}]),
+], ignore_index=True)
+save_csv(val, 'output/04b_lgd_validation.csv')
+val"""),
+    md("""## Interpretation (plain English)
+
+- **Out-of-time / out-of-regime.** A model trained on the **crisis** books
+  **over-predicts** the calm 2015 book (predicted ~43% vs realised ~25%) -- i.e. it is
+  *conservative* out-of-regime, which is the safe direction. The **reverse** is the
+  dangerous one: training only on calm 2015 and predicting the crisis **under-predicts**
+  downturn severity badly (predicted ~21% vs realised ~57%). A model built only in good
+  times is blind to a downturn; this is the headline out-of-time finding and the reason
+  the downturn LGD (notebook 04 / 06) is used for the conservative estimate.
+- **Cohort backtest.** Read by predicted-LGD decile, mean predicted and mean realised
+  track in the same direction -- the model is **calibrated in rank**. Per the WP14
+  caveat, this is a cohort comparison; a single point-in-time realised LGD must **not**
+  be compared directly to a long-run estimate loan-by-loan.
+- **Discrimination.** A positive Spearman correlation between predicted and realised
+  severity on the loss-only loans confirms the model **rank-orders** loss size, though
+  mortgage LGD is inherently noisy so the R^2 is modest -- normal for severity models.
+- **Stability.** Dropping any single vintage moves the overall mean predicted LGD only
+  modestly, **except** when the crisis volume is removed, which pulls the estimate down
+  -- consistent with severity being driven by the downturn cohorts.
+
+## Benchmarking note (APG 113 para 140(c); WP14)
+
+Internal loss data here is **thin** -- three discrete vintages, only ~7k disposed
+defaults, and the calm year has barely 100 -- so the framework expects **benchmarking
+and qualitative review** to carry more weight than pure backtesting. The modelled
+downturn severity (~55-58%) is in line with **published US agency mortgage loss
+severities** for the 2008-09 period (broadly ~50-60% on distressed dispositions),
+which supports the magnitude even where the internal sample is too small to backtest
+tightly. In production this would be supplemented with external severity benchmarks and
+an expert-judgement overlay rather than relying on the internal backtest alone."""),
+])
+
+
+# ======================================================================
 # 05 -- EAD
 # ======================================================================
 write("05_ead.ipynb", [

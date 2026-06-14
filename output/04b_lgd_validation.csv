@@ -1,0 +1,8 @@
+section,detail,n_test,observed_lgd,predicted_lgd,pred_minus_obs
+out_of_time,A) train crisis 2007+08 -> test calm 2015,136.0,0.2464,0.4326,0.1862
+out_of_time,B) reverse: train calm 2015 -> test crisis (under-predicts),6613.0,0.5673,0.2081,-0.3591
+stability,all vintages,,,0.5596,
+stability,drop 2007,,,0.5243,
+stability,drop 2008,,,0.5675,
+stability,drop 2015,,,0.5665,
+discrimination,spearman / R2 on loss-only,,0.2964,0.0687,
