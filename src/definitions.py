@@ -87,13 +87,38 @@ def is_credit_event(zb_code_series):
     return z.isin(CREDIT_EVENT_ZB_CODES)
 
 
-def realised_loss(df):
-    """Realised loss on disposed defaults, mirroring the SFLLD actual-loss definition:
+def _recovery_fields(include_mi=True):
+    """The recovery columns to sum. APS 113 Att B para 23 forbids using LMI
+    (mortgage-insurance) recoveries inside a retail-mortgage LGD, so the APRA
+    view drops `mi_recoveries` by passing include_mi=False."""
+    if include_mi:
+        return list(RECOVERY_FIELDS)
+    return [c for c in RECOVERY_FIELDS if c != "mi_recoveries"]
+
+
+def net_recovery(df, include_mi=True):
+    """Net cash the lender gets back at disposition, as a single lump sum:
+    recoveries MINUS foreclosure costs. Expenses are stored NEGATIVE in the
+    SFLLD file, so adding them subtracts the cost. This is the cash flow the
+    economic-loss calculation discounts back to the default date."""
+    recoveries = df[_recovery_fields(include_mi)].fillna(0).sum(axis=1)
+    expenses = df[EXPENSE_FIELD].fillna(0)              # negative in the data
+    return recoveries + expenses
+
+
+def realised_loss(df, include_mi=True):
+    """Realised (NOMINAL, undiscounted) loss on disposed defaults, mirroring the
+    SFLLD actual-loss definition:
 
         Loss = EAD
              + delinquent_accrued_interest      (interest owed but unpaid)
              - expenses                          (stored negative => subtract = add cost)
              - net_sales_proceeds - mi_recoveries - non_mi_recoveries   (money recovered)
+
+    This is the reconciliation anchor (corr ~0.99 to Freddie Mac's own loss
+    field) -- the DEFAULT (include_mi=True) is byte-for-byte the original
+    formula, so the reconciliation is untouched. include_mi=False drops LMI
+    recoveries for the separate APRA view (APS 113 Att B para 23).
 
     Component columns are assumed already cleaned to numbers (blanks -> 0, since
     loss/recovery fields are only populated around disposition).
@@ -101,8 +126,41 @@ def realised_loss(df):
     ead = df["ead"].fillna(0)
     accrued = df[ACCRUED_INTEREST_FIELD].fillna(0)
     expenses = df[EXPENSE_FIELD].fillna(0)              # negative in the data
-    recoveries = df[RECOVERY_FIELDS].fillna(0).sum(axis=1)
+    recoveries = df[_recovery_fields(include_mi)].fillna(0).sum(axis=1)
     return ead + accrued - expenses - recoveries
+
+
+def economic_loss(df, include_mi=True, rate_col="original_interest_rate", max_months=None):
+    """ECONOMIC (discounted) loss on disposed defaults -- the framework's actual
+    LGD definition (CRE36.76 / APS 113 Att D LGD para 1), which must include
+    "material discount effects".
+
+    Because the SFLLD file lumps all recoveries/expenses at disposition, we treat
+    the net recovery as a single cash flow occurring `months_to_resolution` months
+    after default and discount it back to the default date:
+
+        r_m             = (original_interest_rate / 100) / 12      # APG 113 Table 8: facility's own rate
+        discount_factor = 1 / (1 + r_m) ** months_to_resolution
+        economic_loss   = EAD + accrued_interest - discount_factor * net_recovery
+
+    Discounting shrinks the present value of the recovery, so economic loss is
+    >= nominal loss; the gap grows with the workout length. At
+    months_to_resolution = 0 it reduces exactly to realised_loss().
+
+    NaN-safe: a missing rate or month-gap falls back to no discounting
+    (discount_factor = 1) rather than crashing -- those few rows then equal the
+    undiscounted loss (documented limitation, see LGD task P1-1 / NOT-to-do).
+    """
+    ead = df["ead"].fillna(0)
+    accrued = df[ACCRUED_INTEREST_FIELD].fillna(0)
+    rec = net_recovery(df, include_mi=include_mi)
+    r_m = (pd.to_numeric(df[rate_col], errors="coerce") / 100.0 / 12.0).fillna(0.0)
+    months = pd.to_numeric(df["months_to_resolution"], errors="coerce")
+    if max_months is not None:
+        months = months.clip(upper=max_months)
+    months = months.fillna(0.0)
+    discount_factor = 1.0 / (1.0 + r_m) ** months
+    return ead + accrued - discount_factor * rec
 
 
 def winsorise_lgd(lgd, floor=0.0, cap=1.10):
@@ -111,3 +169,12 @@ def winsorise_lgd(lgd, floor=0.0, cap=1.10):
     past the exposure, and clipping hard at 1 would hide that. Documented choice.
     """
     return np.clip(lgd, floor, cap)
+
+
+def apply_lgd_floor(lgd, floor=0.20):
+    """APS 113 Att B paras 19-24 / Tables 6-7 prescribe minimum (floored) LGDs as
+    a regulatory-capital backstop. 0.20 is the retail residential-mortgage floor
+    used when own-LGD estimates are not approved. NaN-safe and only applied to the
+    separate APRA-view column -- never to the IFRS 9 realised/modelled LGD."""
+    lgd = np.asarray(lgd, dtype=float)
+    return np.where(np.isnan(lgd), lgd, np.maximum(lgd, floor))

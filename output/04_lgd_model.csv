@@ -1,4 +1,4 @@
-regime,disposed_defaults,observed_lgd,modelled_lgd
-calm (2015),136,0.2464,0.2325
-downturn (2007-08),6613,0.5673,0.5664
-all,6749,0.5608,0.5596
+regime,disposed_defaults,observed_lgd,modelled_lgd,observed_lgd_econ,lgd_apra
+calm (2015),136,0.2464,0.2325,0.3033,0.3635
+downturn (2007-08),6613,0.5673,0.5664,0.6214,0.634
+all,6749,0.5608,0.5596,0.615,0.6285

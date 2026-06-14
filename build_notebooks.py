@@ -160,14 +160,76 @@ df['months_to_resolution'] = np.where(
     d.months_between(df['default_period'], df['disposition_period']),
     np.nan,
 )"""),
+    md("""### Nominal vs *economic* loss -- discounting (P1-1)
+
+The framework's very first definition of LGD (CRE36.76 / APS 113 Att D LGD para 1)
+is **economic loss**, which *must* include "material discount effects". The `lgd`
+column above is **nominal** -- it adds up the dollars lost without caring *when*
+they were lost. But a mortgage workout takes months or years (`months_to_resolution`),
+and a dollar recovered years after default is worth less than a dollar today.
+
+So we add a second, framework-aligned figure, `lgd_econ`:
+
+- We treat the net recovery (sale proceeds + insurance + other recoveries, **minus**
+  foreclosure costs) as a single cash flow arriving `months_to_resolution` months
+  after default, and **discount it back** to the default date.
+- The discount rate is the **facility's own contractual rate** -- the first choice
+  in **APG 113 para 122 / Table 8** -- i.e. `original_interest_rate` converted to a
+  monthly rate `r_m = (rate/100)/12`.
+
+Discounting shrinks the present value of the recovery, so **economic loss is always
+>= nominal loss**, and the gap is widest for the longest workouts. The original
+nominal `lgd` (and its ~0.99 reconciliation) is kept untouched."""),
+    code("""# Economic (discounted) loss + LGD -- the framework's actual LGD definition.
+# Kept SEPARATE from nominal `lgd`; reduces to it when the workout is instant.
+df['economic_loss'] = np.where(df['disposed'], d.economic_loss(df), np.nan)
+lgd_econ_raw = df['economic_loss'] / df['ead'].replace(0, np.nan)
+df['lgd_econ'] = np.where(df['disposed'], d.winsorise_lgd(lgd_econ_raw), np.nan)
+print('avg nominal LGD : {:.4f}'.format(df.loc[df['disposed'], 'lgd'].mean()))
+print('avg economic LGD: {:.4f}  (>= nominal, as discounting requires)'.format(
+    df.loc[df['disposed'], 'lgd_econ'].mean()))"""),
+    md("""### IFRS 9 view vs **APRA regulatory-capital view** of LGD (P1-2, P1-3)
+
+The numbers so far answer *"what was actually lost economically?"* -- the **IFRS 9 /
+accounting** question, where every real recovery (including mortgage insurance) counts.
+APRA's **capital** rules deliberately answer a more conservative question and we keep
+them in a **separate** column, `lgd_apra`, never overwriting the IFRS 9 number:
+
+- **No LMI credit (APS 113 Att B para 23).** You may **not** use lender's-mortgage-
+  insurance recoveries inside a retail-mortgage LGD. We rebuild the loss with
+  `include_mi=False`, then apply the permitted **20% LGD reduction** on the high-LVR
+  (LVR > 80) loans that actually carry LMI -- the relief the rule grants in place of
+  the recovery.
+- **LGD floor (APS 113 Att B paras 19-24, Tables 6-7).** A regulatory minimum LGD is
+  then applied -- **20%** for retail residential mortgages where own-LGD estimates are
+  not approved (stated as our assumption).
+
+Removing the MI recovery *raises* the loss, so for MI-covered high-LVR loans
+`lgd_apra >= lgd`. The floor is a backstop on top. This column is the APRA-view
+overlay only; the IFRS 9 `lgd` / `lgd_econ` are left exactly as computed."""),
+    code("""# APRA regulatory-capital view: MI excluded, 20% high-LVR+LMI reduction, 20% floor.
+loss_no_mi = np.where(df['disposed'], d.economic_loss(df, include_mi=False), np.nan)
+lgd_no_mi = d.winsorise_lgd(loss_no_mi / df['ead'].replace(0, np.nan))
+mi_present = pd.to_numeric(df['mi_pct'], errors='coerce').fillna(0) > 0
+high_lvr = pd.to_numeric(df['original_ltv'], errors='coerce') > 80
+# 20% LGD reduction where LVR>80 and LMI is in place (APS 113 Att B para 23).
+lgd_apra = np.where(mi_present & high_lvr, lgd_no_mi * (1 - 0.20), lgd_no_mi)
+lgd_apra = d.apply_lgd_floor(lgd_apra, floor=0.20)  # APS 113 retail mortgage floor
+df['lgd_apra'] = np.where(df['disposed'], lgd_apra, np.nan)
+mi_hi = df['disposed'] & mi_present & high_lvr
+print('MI-covered high-LVR disposed defaults:', int(mi_hi.sum()))
+print('  avg IFRS 9 lgd : {:.4f}'.format(df.loc[mi_hi, 'lgd'].mean()))
+print('  avg APRA lgd   : {:.4f}  (>= IFRS 9: MI recovery removed)'.format(
+    df.loc[mi_hi, 'lgd_apra'].mean()))"""),
     code("""# Keep one clean analysis row per loan and cache it for later notebooks.
 base_cols = [
     'loan_sequence_number', 'vintage_year', 'credit_score', 'original_ltv',
     'original_cltv', 'original_dti', 'original_interest_rate', 'original_loan_term',
     'original_upb', 'loan_purpose', 'occupancy_status', 'channel', 'number_of_borrowers',
-    'credit_score_band', 'ltv_band', 'ever_default', 'disposed', 'max_delinq_status',
+    'mi_pct', 'credit_score_band', 'ltv_band', 'ever_default', 'disposed', 'max_delinq_status',
     'ead', 'realised_loss', 'lgd',
     'default_period', 'disposition_period', 'months_to_resolution',
+    'economic_loss', 'lgd_econ', 'lgd_apra',
 ]
 base = df[base_cols].copy()
 base.to_parquet('data/processed/analysis_base.parquet')
@@ -181,12 +243,15 @@ print('share resolved in 0 months:', round(float((wr == 0).mean()), 4))
 # Confirm the field is blank for everyone who did NOT dispose-as-default.
 print('non-disposed loans with a non-NaN value (should be 0):',
       int(df.loc[~df['disposed'], 'months_to_resolution'].notna().sum()))"""),
-    code("""# Results table: default rate and average LGD by vintage (downturn vs calm).
+    code("""# Results table: default rate and average LGD by vintage (downturn vs calm),
+# now showing nominal vs economic (discounted) and the APRA-view LGD side by side.
 tbl = df.groupby('vintage_year').agg(
     loans=('loan_sequence_number', 'size'),
     default_rate=('ever_default', 'mean'),
     disposed_defaults=('disposed', 'sum'),
     avg_lgd=('lgd', 'mean'),
+    avg_lgd_econ=('lgd_econ', 'mean'),
+    avg_lgd_apra=('lgd_apra', 'mean'),
     median_lgd=('lgd', 'median'),
     avg_ead=('ead', 'mean'),
 ).reset_index().round(4)
@@ -194,7 +259,13 @@ save_csv(tbl, 'output/01_default_lgd_by_vintage.csv')
 tbl"""),
     md("""**Reading the table:** both the chance of default *and* the severity of
 loss when it happens are much worse in the crisis vintages -- the two effects
-compound, which is exactly why a downturn hurts a mortgage book so much."""),
+compound, which is exactly why a downturn hurts a mortgage book so much.
+
+Across the new LGD columns: **`avg_lgd_econ` >= `avg_lgd`** in every vintage
+(discounting the recovery raises the loss), and **`avg_lgd_apra`** sits higher
+again because it strips out mortgage-insurance recoveries and imposes the 20%
+regulatory floor. The three columns are deliberately kept separate: nominal IFRS 9,
+economic IFRS 9, and the conservative APRA capital view."""),
 ])
 
 
@@ -531,27 +602,59 @@ print('disposed defaults used for LGD:', len(disposed))"""),
     code("""# Fit the two-stage LGD model (P(loss) x severity) and predict back on them.
 lgd_model = TwoStageLGD().fit(disposed)
 disposed['lgd_hat'] = lgd_model.predict(disposed)"""),
-    code("""# Compare observed vs modelled LGD, downturn (2007/2008) vs calm (2015).
+    code("""# Compare observed vs modelled LGD, downturn (2007/2008) vs calm (2015), and
+# show the three LGD lenses side by side: nominal IFRS 9, economic IFRS 9, APRA.
 disposed['regime'] = np.where(disposed['vintage_year'].isin([2007, 2008]), 'downturn (2007-08)', 'calm (2015)')
 tbl = disposed.groupby('regime').agg(
     disposed_defaults=('lgd', 'size'),
     observed_lgd=('lgd', 'mean'),
     modelled_lgd=('lgd_hat', 'mean'),
+    observed_lgd_econ=('lgd_econ', 'mean'),
+    lgd_apra=('lgd_apra', 'mean'),
 ).reset_index().round(4)"""),
     code("""# Add an "all vintages" row and save as this notebook's result table.
 overall = pd.DataFrame([{
     'regime': 'all', 'disposed_defaults': len(disposed),
     'observed_lgd': round(disposed['lgd'].mean(), 4),
     'modelled_lgd': round(disposed['lgd_hat'].mean(), 4),
+    'observed_lgd_econ': round(disposed['lgd_econ'].mean(), 4),
+    'lgd_apra': round(disposed['lgd_apra'].mean(), 4),
 }])
 lgd_summary = pd.concat([tbl, overall], ignore_index=True)
 save_csv(lgd_summary, 'output/04_lgd_model.csv')
 lgd_summary"""),
-    md("""**Reading the table:** `observed_lgd` is what actually happened;
-`modelled_lgd` is the two-stage model's fit. The downturn row sits roughly twice
-as high as the calm row -- the **downturn LGD** a stress test needs. The model is
-built only on loans that truly disposed, so every number is grounded in a real
-settled loss."""),
+    md("""**Reading the table:** `observed_lgd` is what actually happened (nominal
+IFRS 9); `modelled_lgd` is the two-stage model's fit. The downturn row sits roughly
+twice as high as the calm row -- the **downturn LGD** a stress test needs.
+
+The last two columns are the framework views built in notebook 01, carried through
+here so a reviewer sees them next to the model:
+- **`observed_lgd_econ`** -- the *economic* (discounted) IFRS 9 loss; >= nominal
+  because the recovery is discounted over the workout (APS 113 Att D LGD para 1).
+- **`lgd_apra`** -- the **APRA regulatory-capital view**: mortgage-insurance
+  recoveries excluded (APS 113 Att B para 23), the 20% high-LVR+LMI reduction
+  applied, then floored at 20% (APS 113 Att B paras 19-24). It is deliberately the
+  most conservative column and is **never** mixed into the IFRS 9 figures.
+
+The model is built only on loans that truly disposed, so every number is grounded
+in a real settled loss."""),
+    code("""# Cyclicality test (APS 113 Att D LGD paras 4-5): is loss severity materially
+# higher in bad years than good? If so, a DOWNTURN LGD is required, not optional.
+cyc = disposed.groupby('regime').agg(
+    n=('lgd', 'size'), realised_lgd=('lgd', 'mean')).reset_index()
+calm_lgd = float(cyc.loc[cyc['regime'].str.startswith('calm'), 'realised_lgd'].iloc[0])
+down_lgd = float(cyc.loc[cyc['regime'].str.startswith('downturn'), 'realised_lgd'].iloc[0])
+print('calm LGD     : {:.4f}'.format(calm_lgd))
+print('downturn LGD : {:.4f}'.format(down_lgd))
+print('downturn / calm ratio: {:.2f}x'.format(down_lgd / calm_lgd))
+print('=> severity is strongly cyclical, so the LGD ESTIMATE must reflect downturn '
+      'conditions (APS 113 Att D LGD para 4-5), not the through-the-cycle average.')"""),
+    md("""**Cyclicality (P2-3).** Realised severity is far higher in the crisis books
+than the calm one (roughly a 2x ratio), which is the textbook signature of a
+**cyclical** LGD. Under APS 113 Att D LGD paras 4-5, where loss severity is cyclical
+the LGD *estimate* used for capital/EL must reflect **downturn** conditions rather
+than the long-run average. Notebook 06 therefore carries an explicit downturn-LGD
+variant of Expected Loss alongside the through-the-cycle one."""),
 ])
 
 
