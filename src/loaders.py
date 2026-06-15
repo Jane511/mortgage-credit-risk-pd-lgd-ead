@@ -96,6 +96,10 @@ def summarize_performance(path):
     df["loan_age_num"] = pd.to_numeric(df["loan_age"], errors="coerce")
     within_12m = df["loan_age_num"].between(0, 12)
     df["default_12m_row"] = within_12m & df["is_default_row"]
+    # 90-DPD sensitivity variant (PDR2-6): same 12-month window but the broader
+    # APS 220 / Basel 90-DPD (status >= 3) trigger, to evidence the broad-equivalence
+    # claim documented in notebook 08. Built from the same delinquency field.
+    df["default_12m_90_row"] = within_12m & ((df["delinq_num"] >= 3) | df["credit_event"])
 
     # First defaulting month per loan -> default date + EAD (UPB at that month).
     dft = (
@@ -117,6 +121,7 @@ def summarize_performance(path):
     agg = df.groupby("loan_sequence_number").agg(
         disposed=("credit_event", "max"),
         default_within_12m=("default_12m_row", "max"),
+        default_within_12m_90dpd=("default_12m_90_row", "max"),
         max_delinq_status=("delinq_num", "max"),
         last_period=("monthly_reporting_period", "max"),
         months_observed=("monthly_reporting_period", "size"),
@@ -164,6 +169,7 @@ def assemble_vintage(orig_path, svcg_path, vintage_year):
     df["ever_default"] = df["ever_default"].fillna(False)
     df["disposed"] = df["disposed"].fillna(False)
     df["default_within_12m"] = df["default_within_12m"].fillna(False).astype(bool)
+    df["default_within_12m_90dpd"] = df["default_within_12m_90dpd"].fillna(False).astype(bool)
     return df
 
 

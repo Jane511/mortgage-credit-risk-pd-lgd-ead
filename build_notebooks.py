@@ -227,7 +227,7 @@ base_cols = [
     'original_cltv', 'original_dti', 'original_interest_rate', 'original_loan_term',
     'original_upb', 'loan_purpose', 'occupancy_status', 'channel', 'number_of_borrowers',
     'mi_pct', 'credit_score_band', 'ltv_band', 'ever_default', 'default_within_12m',
-    'disposed', 'max_delinq_status',
+    'default_within_12m_90dpd', 'disposed', 'max_delinq_status',
     'ead', 'realised_loss', 'lgd',
     'default_period', 'disposition_period', 'months_to_resolution',
     'economic_loss', 'lgd_econ', 'lgd_apra',
@@ -601,6 +601,30 @@ loan_grade_pd = base[['loan_sequence_number', 'grade']].merge(
 save_csv(loan_grade_pd, 'output/03f_loan_grade_pd.csv')
 print('exported per-loan calibrated regulatory PD for', len(loan_grade_pd), 'loans')
 loan_grade_pd.head()"""),
+    code("""# PDR2-6: 90-DPD sensitivity. Re-measure the one-year default rate and each grade's
+# observed rate under the broader 90-DPD trigger (vs the repo's 180-DPD definition),
+# evidencing the APS 220 broad-equivalence note in notebook 08. The grades are held
+# fixed -- only the default *definition* is swapped -- so this isolates its effect.
+dpd = pd.DataFrame({
+    'basis': ['180-DPD (model definition)', '90-DPD (APS 220 / Basel)'],
+    'one_year_default_rate': [round(base['target'].mean(), 4),
+                              round(base['default_within_12m_90dpd'].mean(), 4)],
+})
+by_grade = base.groupby('grade', observed=True).agg(
+    rate_180dpd=('target', 'mean'),
+    rate_90dpd=('default_within_12m_90dpd', 'mean')).reset_index().round(4)
+by_grade['uplift_x'] = (by_grade['rate_90dpd'] / by_grade['rate_180dpd'].replace(0, np.nan)).round(2)
+save_csv(by_grade, 'output/03g_dpd_sensitivity.csv')
+print(dpd.to_string(index=False))
+by_grade"""),
+    md("""**90-DPD sensitivity (PDR2-6).** The model defines default at **180-DPD** (a common
+mortgage convention and what the data cleanly supports); APS 220 / Basel reference **90-DPD**.
+Swapping only the trigger, the one-year default rate **rises** (more loans cross 90 than 180
+days late within the first year) and every grade's observed rate steps up by a similar factor
+-- the rank-ordering is preserved, so the grades and scorecard would still hold under a
+90-DPD definition, with the PD **level** re-anchored upward. This quantifies the "broad
+equivalence" adjustment documented in notebook 08 (it is a sensitivity, not the model
+target; nothing downstream is re-pointed to it)."""),
     code("""# Downturn view: reuse the stress logic (PD multiplier = crisis vs calm default
 # rate) to show how each grade's predicted PD shifts in a recession.
 calm = base[base['vintage_year'] == 2015]
@@ -1178,6 +1202,14 @@ el_summary = base.groupby('ifrs9_stage').agg(
 ).reset_index().round(2)
 save_csv(el_summary, 'output/06_expected_loss.csv')
 el_summary"""),
+    md("""**Lifetime PD note (PDR2-7).** `expected_loss_12m` is a genuine **12-month** EL,
+the correct IFRS 9 **Stage 1** input. The `reported_expected_loss` column then needs
+**lifetime** ECL for Stages 2 and 3, and here we approximate it by scaling the 12-month
+figure by a flat multi-year **horizon factor** (`LIFETIME_HORIZON = 4`). This is a
+deliberate, named **proxy**: a production model would instead estimate a full **lifetime
+PD term structure** (cumulative one-year PDs across the remaining life, conditioned on
+age and macro path) rather than a single scalar. The proxy is kept here only to show the
+staged-ECL shape end to end."""),
     md("""### Downturn-LGD variant of Expected Loss (P2-3)
 
 Notebook 04 showed loss severity is strongly **cyclical** (~25% calm vs ~57% crisis).
