@@ -180,6 +180,14 @@ def apply_lgd_floor(lgd, floor=0.20):
     return np.where(np.isnan(lgd), lgd, np.maximum(lgd, floor))
 
 
+def apply_pd_floor(pd_values, floor=0.0005):
+    """Regulatory PD floor (PD-6): PD = max(estimate, 0.0005) per APS 113 Att B para 1
+    / Step 11 (the 5 bps minimum). Sovereigns are exempt, which is irrelevant to a
+    mortgage book. NaN-safe."""
+    pd_values = np.asarray(pd_values, dtype=float)
+    return np.where(np.isnan(pd_values), pd_values, np.maximum(pd_values, floor))
+
+
 def add_moc(lgd, add_pp=0.05, cap=1.10):
     """Margin of conservatism overlay (CRE36.67 / Step 11). An ADDITIVE add-on, in
     LGD points, to cover the thin data and short observation window (3 vintages) and

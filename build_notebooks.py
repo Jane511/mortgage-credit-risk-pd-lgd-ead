@@ -532,6 +532,34 @@ test **understates** the true Type-I error and will flag amber/red more readily 
 correlation-aware test would. Read any amber/red as a **prompt for review**, not a hard
 pass/fail; the margin of conservatism (PD-5) is the deliberate response to exactly this
 kind of correlated-tail uncertainty."""),
+    code("""# PD-5 + PD-6: margin of conservatism (additive overlay) then the 5 bps regulatory
+# floor, on each grade's calibrated long-run PD. MoC covers the thin, downturn-heavy
+# window (CRE36.67 / APG 113 para 115a); the floor is the APS 113 Att B para 1 backstop.
+from src import definitions as d
+PD_MOC_PP = 0.0025  # +25 bps additive overlay on each grade PD (an overlay, not the model).
+grade_pd = master[['grade', 'long_run_pd']].copy()
+grade_pd['long_run_pd_moc'] = d.add_moc(grade_pd['long_run_pd'].values, PD_MOC_PP, cap=1.0).round(4)
+grade_pd['long_run_pd_final'] = d.apply_pd_floor(grade_pd['long_run_pd_moc'].values, floor=0.0005).round(4)
+grade_pd['moc_points'] = PD_MOC_PP
+grade_pd['floor_binds'] = grade_pd['long_run_pd_moc'] < 0.0005
+save_csv(grade_pd, 'output/03e_grade_pd_moc_floor.csv')
+grade_pd"""),
+    md("""**Margin of conservatism + floor (PD-5, PD-6).** `long_run_pd` is the calibrated
+estimate; `long_run_pd_moc` adds a documented **+25 bps additive margin of conservatism**;
+`long_run_pd_final` then applies the **5 bps regulatory PD floor** (`max(PD, 0.0005)`).
+
+- **Why this MoC, and where it sits.** Only three vintages, two of them crisis, plus the
+  correlated-default caveat from the calibration test, mean the grade PDs carry real
+  estimation uncertainty. The MoC is an explicit **overlay on each grade** (not inside the
+  model), deliberately additive and modest; it bites hardest on the safest grades, which is
+  the conservative direction for thin data. It would be **reviewed annually** (PD-10) and
+  re-sized as more vintages accumulate.
+- **The floor** (APS 113 Att B para 1, the 5 bps minimum) is applied for completeness.
+  At grade level it does **not** bind here once the +25 bps MoC is added (`floor_binds`
+  is all False, min grade PD 0.30%). But because this is a low one-year PD, the floor
+  **does bite at the per-loan level** in the Expected-Loss step (notebook 06), where it
+  lifts roughly **one in five** loans whose raw model PD sits below 5 bps. Sovereign
+  exposures are exempt from the floor, which is irrelevant to a mortgage book."""),
     code("""# Downturn view: reuse the stress logic (PD multiplier = crisis vs calm default
 # rate) to show how each grade's predicted PD shifts in a recession.
 calm = base[base['vintage_year'] == 2015]
@@ -1024,8 +1052,11 @@ from src.output import save_csv
 base = pd.read_parquet('data/processed/analysis_base.parquet').copy()"""),
     code("""# One-year PD for every loan (logistic model fit on the whole book). pd_hat is a
 # 12-month PD (PD-1/PD-2) -- exactly the IFRS 9 Stage 1 (12-month ECL) input.
+from src import definitions as d
 pd_model, pd_cols = models.fit_pd(base)
-base['pd_hat'] = models.predict_pd(pd_model, pd_cols, base)"""),
+base['pd_hat'] = models.predict_pd(pd_model, pd_cols, base)
+# PD-6: apply the 5 bps regulatory PD floor to the per-loan PD used in EL.
+base['pd_hat'] = d.apply_pd_floor(base['pd_hat'], floor=0.0005)"""),
     code("""# LGD for every loan (two-stage model trained on disposed defaults).
 disposed = base[base['disposed'] & base['lgd'].notna()]
 lgd_model = models.TwoStageLGD().fit(disposed)
