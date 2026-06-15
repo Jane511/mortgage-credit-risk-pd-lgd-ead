@@ -226,7 +226,8 @@ base_cols = [
     'loan_sequence_number', 'vintage_year', 'credit_score', 'original_ltv',
     'original_cltv', 'original_dti', 'original_interest_rate', 'original_loan_term',
     'original_upb', 'loan_purpose', 'occupancy_status', 'channel', 'number_of_borrowers',
-    'mi_pct', 'credit_score_band', 'ltv_band', 'ever_default', 'disposed', 'max_delinq_status',
+    'mi_pct', 'credit_score_band', 'ltv_band', 'ever_default', 'default_within_12m',
+    'disposed', 'max_delinq_status',
     'ead', 'realised_loss', 'lgd',
     'default_period', 'disposition_period', 'months_to_resolution',
     'economic_loss', 'lgd_econ', 'lgd_apra',
@@ -234,6 +235,33 @@ base_cols = [
 base = df[base_cols].copy()
 base.to_parquet('data/processed/analysis_base.parquet')
 print('analysis base:', base.shape)"""),
+    md("""### One-year PD target -- `default_within_12m` (PD-1)
+
+The headline `ever_default` flag asks *"did this loan ever go bad in the history we
+observed?"* That is the right lens for lifetime loss and for the LGD population, but it
+is **not** how a PD is defined for capital. The framework's foundational definition
+(CRE36.63 / APS 113 Att D PD para 2) is a **long-run average of one-year default
+rates** -- so the PD target must be measured over a **fixed 12-month window** for every
+loan, regardless of how long we happened to watch it.
+
+`default_within_12m` is exactly that: a default (180+ DPD or a credit-event) occurring
+within the **first 12 months** of the loan's life (from `loan_age`). Because the 2007/08
+books are observed for far longer than 2015, their *observed-to-date* rates are not
+comparable; the fixed one-year window puts all three vintages on the **same footing**.
+
+`ever_default` and `disposed` are kept **unchanged** -- the PD notebooks switch to the
+one-year flag, while the lifetime-EL view and the LGD work keep using `ever_default`."""),
+    code("""# Sanity-check the one-year PD target: it must be a SUBSET of ever_default, and
+# the 12-month default rate is now measured over the same window for all vintages.
+assert (df['default_within_12m'] & ~df['ever_default']).sum() == 0, '12m default must imply ever_default'
+pd_target = df.groupby('vintage_year').agg(
+    loans=('loan_sequence_number', 'size'),
+    ever_default_rate=('ever_default', 'mean'),
+    one_year_default_rate=('default_within_12m', 'mean'),
+).reset_index().round(4)
+print(pd_target.to_string(index=False))
+print('one-year default is a strict subset of ever-default:',
+      bool((df['default_within_12m'] <= df['ever_default']).all()))"""),
     code("""# Sanity-check the new workout-length field on disposed defaults only.
 wr = df.loc[df['disposed'], 'months_to_resolution']
 print('disposed defaults with a usable months_to_resolution:', int(wr.notna().sum()))

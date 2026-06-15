@@ -51,7 +51,7 @@ _SVCG_USECOLS = [
     "mi_recoveries", "net_sales_proceeds", "non_mi_recoveries", "expenses",
     "legal_costs", "maintenance_preservation_costs", "taxes_and_insurance",
     "miscellaneous_expenses", "actual_loss_calculation", "zero_balance_removal_upb",
-    "delinquent_accrued_interest", "zero_balance_effective_date",
+    "delinquent_accrued_interest", "zero_balance_effective_date", "loan_age",
 ]
 
 # Money fields that appear once (at disposition) -> safe to sum to loan level.
@@ -89,6 +89,14 @@ def summarize_performance(path):
     # A row marks default if 180+ DPD (status >= 6) OR a credit-event disposition.
     df["is_default_row"] = (df["delinq_num"] >= d.DEFAULT_DPD_STATUS) | df["credit_event"]
 
+    # ONE-YEAR default flag (PD-1): a default occurring within the first 12 months
+    # of the loan's life (loan_age in months). A fixed window makes vintages with
+    # different observation lengths directly comparable -- the framework's long-run
+    # one-year PD basis (CRE36.63 / APS 113 Att D PD para 2).
+    df["loan_age_num"] = pd.to_numeric(df["loan_age"], errors="coerce")
+    within_12m = df["loan_age_num"].between(0, 12)
+    df["default_12m_row"] = within_12m & df["is_default_row"]
+
     # First defaulting month per loan -> default date + EAD (UPB at that month).
     dft = (
         df[df["is_default_row"]]
@@ -108,6 +116,7 @@ def summarize_performance(path):
     # Loan-level one-time aggregates (loss/recovery fields appear once, at disposition).
     agg = df.groupby("loan_sequence_number").agg(
         disposed=("credit_event", "max"),
+        default_within_12m=("default_12m_row", "max"),
         max_delinq_status=("delinq_num", "max"),
         last_period=("monthly_reporting_period", "max"),
         months_observed=("monthly_reporting_period", "size"),
@@ -154,6 +163,7 @@ def assemble_vintage(orig_path, svcg_path, vintage_year):
     # Loans with no performance rows at all never defaulted.
     df["ever_default"] = df["ever_default"].fillna(False)
     df["disposed"] = df["disposed"].fillna(False)
+    df["default_within_12m"] = df["default_within_12m"].fillna(False).astype(bool)
     return df
 
 
