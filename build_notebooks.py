@@ -1256,55 +1256,102 @@ and read off the increase in Expected Loss.
 
 **Headline result:** under the crisis-calibrated downturn, portfolio Expected
 Loss rises several-fold versus the calm baseline -- driven by PD and LGD getting
-worse *at the same time*."""),
+worse *at the same time*.
+
+**Consistency (PDR2-5):** the stress now runs on the **same one-year / calibrated
+capital PD** as the rest of the model (notebooks 03b/06), with **two named scenarios**
+(a mild recession and the severe observed crisis), the **no-diversification** assumption,
+and a contingency + reverse-stress note -- aligning it to the Stress framework (Basel
+CRE36.51; APS 220 paras 70-76)."""),
     code(BOOTSTRAP),
-    code("""# Load the base table and split into calm (2015) and downturn (2007-08) books.
+    code("""# Load the base table + the calibrated capital PD (03f), and split calm vs downturn.
 import pandas as pd
 import numpy as np
 from src.output import save_csv
-base = pd.read_parquet('data/processed/analysis_base.parquet')
+base = pd.read_parquet('data/processed/analysis_base.parquet').copy()
+base['loan_sequence_number'] = base['loan_sequence_number'].astype(str)
+cap = pd.read_csv('output/03f_loan_grade_pd.csv')[['loan_sequence_number', 'grade_pd_final']]
+cap['loan_sequence_number'] = cap['loan_sequence_number'].astype(str)
+base = base.merge(cap, on='loan_sequence_number', how='left')
 calm = base[base['vintage_year'] == 2015]
 downturn = base[base['vintage_year'].isin([2007, 2008])]"""),
-    code("""# Observed downturn multipliers: how much PD and LGD worsened in the crisis.
-pd_calm, pd_down = calm['ever_default'].mean(), downturn['ever_default'].mean()
+    code("""# Observed SEVERE multipliers on the ONE-YEAR PD (PDR2-5: same target as PD/EL) and
+# on realised LGD; a MILD recession is framed as a documented fraction of that path
+# (Basel CRE36.51's two-consecutive-quarters-of-zero-growth example).
+pd_calm_1yr, pd_down_1yr = calm['default_within_12m'].mean(), downturn['default_within_12m'].mean()
 lgd_calm = calm.loc[calm['disposed'], 'lgd'].mean()
 lgd_down = downturn.loc[downturn['disposed'], 'lgd'].mean()
-pd_mult = pd_down / pd_calm
-lgd_mult = lgd_down / lgd_calm
-print(f'PD multiplier  = {pd_mult:.2f}x   LGD multiplier = {lgd_mult:.2f}x')"""),
-    code("""# Macro context for the downturn (documented assumptions; production would pull
-# these live from FRED: unemployment UNRATE, house prices CSUSHPINSA). Values
-# reflect the 2008-09 GFC path, comparable to a CCAR severely-adverse scenario.
+pd_mult_sev, lgd_mult_sev = pd_down_1yr / pd_calm_1yr, lgd_down / lgd_calm
+MILD_FRACTION = 0.33  # mild recession ~ one third of the GFC severity (documented)
+pd_mult_mild = 1 + (pd_mult_sev - 1) * MILD_FRACTION
+lgd_mult_mild = 1 + (lgd_mult_sev - 1) * MILD_FRACTION
+print(f'severe: PD x{pd_mult_sev:.2f}  LGD x{lgd_mult_sev:.2f}   mild: PD x{pd_mult_mild:.2f}  LGD x{lgd_mult_mild:.2f}')"""),
+    code("""# Macro context per scenario (documented assumptions; production would pull these live
+# from FRED -- unemployment UNRATE, house prices CSUSHPINSA).
 macro = pd.DataFrame([
     {'scenario': 'baseline (2015 calm)', 'unemployment_pct': 5.3, 'hpi_change_pct': 5.0},
-    {'scenario': 'severely adverse (GFC 2008-09)', 'unemployment_pct': 10.0, 'hpi_change_pct': -30.0},
+    {'scenario': 'mild recession (CRE36.51: 2 quarters ~0 growth)', 'unemployment_pct': 7.0, 'hpi_change_pct': -8.0},
+    {'scenario': 'severely adverse (observed GFC 2008-09)', 'unemployment_pct': 10.0, 'hpi_change_pct': -30.0},
 ])
 macro"""),
-    code("""# Apply the downturn to the calm-year book: stress PD and LGD, recompute EL.
+    code("""# Stress the calm-2015 book: baseline PD = the CALIBRATED CAPITAL PD (matches EL),
+# then apply each scenario's PD and LGD multipliers TOGETHER (no diversification, APG
+# 113 para 92 -- the shocks are not allowed to offset; they stack multiplicatively).
 ead_calm = np.where(calm['ever_default'], calm['ead'], calm['original_upb'])
-base_pd = calm['ever_default'].mean()
-base_lgd = lgd_calm
+base_pd = float(calm['grade_pd_final'].fillna(calm['default_within_12m'].mean()).mean())  # calibrated capital PD
+base_lgd = float(lgd_calm)
 baseline_el = (base_pd * base_lgd * ead_calm).sum()
-stressed_el = (min(base_pd * pd_mult, 1.0) * min(base_lgd * lgd_mult, 1.0) * ead_calm).sum()
-stress_tbl = pd.DataFrame([
-    {'measure': 'PD', 'baseline': round(base_pd, 4), 'stressed': round(min(base_pd * pd_mult, 1.0), 4)},
-    {'measure': 'LGD', 'baseline': round(base_lgd, 4), 'stressed': round(min(base_lgd * lgd_mult, 1.0), 4)},
-    {'measure': 'expected_loss', 'baseline': round(baseline_el, 0), 'stressed': round(stressed_el, 0)},
-    {'measure': 'EL_uplift_x', 'baseline': 1.0, 'stressed': round(stressed_el / baseline_el, 2)},
-])
+
+def stressed_el(pd_m, lgd_m):
+    return (min(base_pd * pd_m, 1.0) * min(base_lgd * lgd_m, 1.0) * ead_calm).sum()
+
+rows = []
+for name, pm, lm in [('baseline', 1.0, 1.0),
+                     ('mild recession', pd_mult_mild, lgd_mult_mild),
+                     ('severely adverse', pd_mult_sev, lgd_mult_sev)]:
+    el = stressed_el(pm, lm)
+    rows.append({'scenario': name, 'pd_mult': round(pm, 2), 'lgd_mult': round(lm, 2),
+                 'stressed_pd': round(min(base_pd * pm, 1.0), 4),
+                 'stressed_lgd': round(min(base_lgd * lm, 1.0), 4),
+                 'expected_loss': round(el, 0), 'EL_uplift_x': round(el / baseline_el, 2)})
+stress_tbl = pd.DataFrame(rows)
 save_csv(stress_tbl, 'output/07_stress_test.csv')
 stress_tbl"""),
-    md("""**Reading the table:** we take the calm 2015 portfolio and push PD and LGD
-up by the multipliers the crisis actually produced. Because the two stack
-multiplicatively, Expected Loss rises far more than either driver alone -- the
-core lesson of downturn stress testing.
+    code("""# Reverse stress (APS 220): what COMBINED PD x LGD multiplier drives EL to a chosen
+# severity multiple? Since EL scales with the product of the two shocks, it is that
+# product. Here: the shock that would QUADRUPLE baseline Expected Loss.
+TARGET_UPLIFT = 4.0
+print(f'Reverse stress: EL reaches {TARGET_UPLIFT:.0f}x baseline at a combined '
+      f'PD x LGD multiplier of ~{TARGET_UPLIFT:.1f}x '
+      f'(e.g. PD x{TARGET_UPLIFT**0.5:.1f} and LGD x{TARGET_UPLIFT**0.5:.1f} together).')
+print(f'For reference the severe observed scenario already reaches '
+      f'{stress_tbl.loc[stress_tbl.scenario==\"severely adverse\",\"EL_uplift_x\"].iloc[0]:.1f}x.')"""),
+    md("""**Reading the table (PDR2-5).** We take the calm 2015 portfolio at its **calibrated
+capital PD** (the same PD behind notebook 06's EL) and push PD and LGD up by each
+scenario's multipliers. Two named scenarios are shown: a **mild recession** (framed on
+Basel CRE36.51's two-quarters-of-near-zero-growth example, ~one third of the GFC path) and
+the **severely adverse** observed 2008-09 crisis. Because the shocks **stack
+multiplicatively with no diversification offset** (APG 113 para 92), Expected Loss rises
+far more than either driver alone -- the core lesson of downturn stress testing.
 
-**Extension -- climate scenario (sketch, not built):** the same machinery extends
-to physical climate risk. A flood or wildfire shock lowers house prices in
-exposed postcodes, which raises **LGD** (smaller recovery on sale) and, via
-negative equity, raises **PD**. One would overlay a hazard map on the property
-postcode, apply a region-specific house-price haircut, and re-run this exact
-PD/LGD/EL stress -- a cheap, high-signal differentiator for a climate-risk role."""),
+**Management actions / contingency (APS 220 para 74).** A breach of the severe scenario
+would trigger documented management actions -- tightening new-origination cut-offs and
+high-LVR lending, raising provisions and the capital buffer, and re-pricing -- which are
+*not* modelled here but would form the contingency plan in production.
+
+**Reverse stress (APS 220).** The cell above frames the inverse question -- the combined
+shock that drives EL to a chosen multiple (here 4x) -- the starting point for identifying
+the scenarios that would threaten viability.
+
+**Independent validation (APS 220 para 76).** Like the PD and LGD models, this stress
+framework would require **independent validation** of its scenarios, multipliers and
+assumptions before use; here development and validation are separated only by notebook.
+
+**Extension -- climate scenario (sketch, not built):** the same machinery extends to
+physical climate risk -- a flood/wildfire shock lowers house prices in exposed postcodes,
+raising **LGD** (smaller recovery) and, via negative equity, **PD**. One would overlay a
+hazard map on the property postcode, apply a region-specific house-price haircut, and
+re-run this exact PD/LGD/EL stress."""),
 ])
 
 

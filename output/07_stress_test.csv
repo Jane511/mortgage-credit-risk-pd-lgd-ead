@@ -1,5 +1,4 @@
-measure,baseline,stressed
-PD,0.0242,0.1055
-LGD,0.2464,0.5673
-expected_loss,66554344.0,668327713.0
-EL_uplift_x,1.0,10.04
+scenario,pd_mult,lgd_mult,stressed_pd,stressed_lgd,expected_loss,EL_uplift_x
+baseline,1.0,1.0,0.0069,0.2464,19048310.0,1.0
+mild recession,3.22,1.43,0.0223,0.3523,87675499.0,4.6
+severely adverse,7.73,2.3,0.0535,0.5673,338777962.0,17.79
