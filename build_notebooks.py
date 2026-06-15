@@ -1507,8 +1507,12 @@ next segments rather than fitted, given the sample size."""),
 
 The PD work (notebooks 01, 03, 03b, 03c) now uses a **one-year default target**
 (`default_within_12m`), calibrates each grade to a **count-weighted long-run average**
-across vintages, applies a **formal calibration test**, a **margin of conservatism**,
-and the **5 bps PD floor**. The items below are the required **documentation** elements.
+across vintages, applies a **formal calibration test**, a **risk-sensitive margin of
+conservatism**, a **revise-upward ratchet** on under-predicting grades, and the **5 bps
+PD floor**. Crucially, this calibrated grade PD now **flows through to Expected Loss
+(notebook 06) and the stress test (notebook 07)**, so EL/capital and the stress layer use
+the **same PD** as the master scale (EL Part 5.1) -- conservatism reaches the dollar loss,
+not just the rating. The items below are the required **documentation** elements.
 
 **Rating philosophy (Step 3 / APG 113 para 73).** This is a **point-in-time-leaning,
 through-the-door** scorecard: it uses **origination features only** (credit score, LTV,

@@ -237,15 +237,25 @@ The PD work was moved from an "ever-defaulted, observed-to-date" flag onto a pro
 - **Formal calibration test** — per-grade **binomial** under-estimation test with a
   green/amber/red traffic-light, plus a portfolio **Hosmer-Lemeshow** chi-square, with the
   correlated-default independence caveat stated (WP14).
-- **Margin of conservatism** (+25 bps overlay on grade PDs) and the **5 bps PD floor**
-  (APS 113 Att B para 1), the floor binding on ~1-in-5 loans at the per-loan level.
-- The PD feeding grades and Expected Loss is the one-year PD; **EL is the IFRS 9 Stage 1
-  (12-month) input**, with a transparent lifetime proxy for Stages 2 and 3.
+- **Risk-sensitive margin of conservatism** — a per-grade margin of ~1.6 standard errors of
+  the grade rate (CRE36.67: tied to the likely range of errors), so thin/volatile grades carry
+  more — plus a **revise-upward ratchet** that lifts any grade flagged by the calibration test
+  to at least its realised rate (APS 113 Validation para 6), and the **5 bps PD floor**.
+- **Conservatism flows through to the dollar loss:** the calibrated grade PD is the PD used in
+  **Expected Loss** (notebook 06) and the **stress test** (notebook 07), so EL/capital and the
+  master scale reconcile to the **same PD** (EL Part 5.1). On a like-for-like pooled basis the
+  margin of conservatism raises EL ~14%.
+- **Stress test** runs on the one-year/calibrated PD with a **mild** and a **severe** named
+  scenario (Basel CRE36.51), a **no-diversification** assumption (APG 113 para 92), and
+  contingency + reverse-stress notes (APS 220 paras 74–76).
+- A **90-DPD sensitivity** (APS 220 broad equivalence) shows the one-year rate and grade PDs
+  roughly double under the broader trigger while rank-ordering holds.
 
 **Still documentation-only** (notebook 08): rating philosophy (PIT-leaning through-the-door,
 TTC approximated by long-run calibration — APG 113 para 73), override policy, use test,
-development/validation independence, the short 3-vintage observation window, and retail-pool
-framing (Part 2.4).
+development/validation independence, the short 3-vintage observation window, retail-pool
+framing (Part 2.4), and a lifetime-PD term structure (a horizon-factor proxy is used for
+Stage 2/3 lifetime ECL).
 
 ## LGD framework alignment (APS 113 / APG 113 / Basel / WP14)
 
