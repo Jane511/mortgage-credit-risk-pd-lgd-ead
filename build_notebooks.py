@@ -1245,7 +1245,10 @@ collapsed to one row per loan. Raw data is not redistributed in this repo.
 **Methodology.**
 - *Default* = first month at 180+ days past due, or a credit-event zero-balance
   code (third-party sale, short sale/charge-off, REO disposition, note sale).
-- *PD* = logistic regression on origination features (interpretable scorecard).
+- *PD* = logistic regression on origination features (interpretable scorecard), on a
+  **one-year** default target, calibrated to a count-weighted long-run average per grade,
+  with a formal calibration test, a margin of conservatism, and the 5 bps floor
+  -- see the PD framework-alignment notes below.
 - *LGD* = two-stage model (P(loss) x severity) on **realised** losses from
   defaulted, disposed loans; reconciled to Freddie Mac's own loss field (corr ~0.99).
   Extended to **economic (discounted) loss**, an **APRA capital view** (MI excluded,
@@ -1331,6 +1334,55 @@ applied and why benchmarking/qualitative review carry extra weight (APG 113 para
 **loan purpose, occupancy, and with/without-LMI** (and likely geography/house-price
 region), each of which plausibly shifts recovery; they are noted here as the natural
 next segments rather than fitted, given the sample size."""),
+    md("""## PD framework alignment notes (APS 113 / APG 113 / Basel / WP14)
+
+The PD work (notebooks 01, 03, 03b, 03c) now uses a **one-year default target**
+(`default_within_12m`), calibrates each grade to a **count-weighted long-run average**
+across vintages, applies a **formal calibration test**, a **margin of conservatism**,
+and the **5 bps PD floor**. The items below are the required **documentation** elements.
+
+**Rating philosophy (Step 3 / APG 113 para 73).** This is a **point-in-time-leaning,
+through-the-door** scorecard: it uses **origination features only** (credit score, LTV,
+DTI, purpose, occupancy, channel) with **no behavioural inputs**, so a loan's grade is
+fixed at booking. Through-the-cycle behaviour is *approximated* by calibrating grade PDs
+to the **long-run average** of yearly one-year rates (PD-3). We explicitly flag APG 113
+para 73's warning that **calibrating PIT ratings to a long-run average does not by itself
+make them TTC** -- a genuinely TTC rating would also dampen the rating *migration* through
+the cycle, which an origination-only scorecard does not attempt.
+
+**Override policy (Step 8).** No overrides are applied in this demonstration. In
+production, rating overrides would be governed by a **written policy** with defined
+approval authorities, a documented rationale per override, and **separate tracking and
+monitoring** of override rates and their subsequent performance.
+
+**Use test (Part 4.1).** This is a demonstration model and is **not used in live credit
+approval, pricing or provisioning**. The "use test" requires that the same ratings drive
+real decisions (origination cut-offs, limit-setting, pricing, capital, ECL). Here we show
+the *capability* (grades, master scale, EL) but make no claim of operational use.
+
+**Independence (Part 5.8).** Model **development and validation would be independent
+functions** in production. In this repo they are separated only by notebook (03/03b build,
+03c/04b validate); a real governance setup would place validation in a separate team with
+its own sign-off.
+
+**Observation window (Step 5 / PD-8).** Three vintages (2007, 2008, 2015) is **short of a
+full cycle**, though it deliberately spans a severe downturn and a calm year -- which is
+exactly why the **margin of conservatism** (PD-5) is applied. The framework's one-year
+default rate is `(D - E_D) / (N - E_N)` (APG 113 para 110), where `E_D`/`E_N` exclude
+zero-exposure and purely technical defaults; in this clean agency sample those exclusions
+are **immaterial** (no undrawn/zero-exposure facilities, and defaults are real 180-DPD /
+loss events, not technical), so `D/N` is used directly.
+
+**Retail pool framing (Part 2.4 / PD-9).** Residential mortgages are a **retail** asset
+class, so the A-H grades are best read as **pools** of homogeneous risk rather than
+obligor ratings. A production retail pool system would also separate **delinquent vs
+current** exposures and reflect **LGD and EAD pooling**, not PD alone. (The 180-vs-90-DPD
+default-definition equivalence under Step 2 is covered in the LGD notes above.)
+
+**Annual review (Part 4.4 / PD-10).** The intended governance cycle is an **annual
+revalidation** of the PD (discrimination, calibration test, PSI) and a re-sizing of the
+margin of conservatism as more vintages accumulate, plus an out-of-cycle review on a PSI
+or calibration-flag trigger."""),
 ])
 
 def _flush():
