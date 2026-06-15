@@ -35,18 +35,24 @@ independently validated.
 **The crisis years are dramatically worse than the calm year — on both how often
 loans default and how much is lost each time.**
 
-| Origination year | Loans | Default rate | Avg loss-given-default | Avg exposure |
-|---|---|---|---|---|
-| **2007** (crisis) | 50,000 | **13.7%** | **58%** | ~$186k |
-| **2008** (crisis) | 50,000 | **7.4%** | **54%** | ~$198k |
-| **2015** (calm)   | 50,000 | **2.4%** | **25%** | ~$198k |
+| Origination year | Loans | Default rate (ever) | One-year default | Avg loss-given-default | Avg exposure |
+|---|---|---|---|---|---|
+| **2007** (crisis) | 50,000 | **13.7%** | **1.3%** | **58%** | ~$186k |
+| **2008** (crisis) | 50,000 | **7.4%** | **0.9%** | **54%** | ~$198k |
+| **2015** (calm)   | 50,000 | **2.4%** | **0.1%** | **25%** | ~$198k |
 
-- **PD model quality:** AUC **0.81**, Gini **0.63**, KS **0.50** on held-out data
-  (0.5 AUC = random guessing, so 0.81 is strong, well-separated discrimination).
+*"Default rate (ever)" is the observed-to-date / lifetime view (used for the LGD
+population and lifetime EL); "one-year default" is the fixed-12-month PD target the
+**PD model** is built and calibrated on (the framework's one-year-PD basis).*
+
+- **PD model quality:** AUC **0.86**, Gini **0.73**, KS **0.57** on held-out data, on
+  the **one-year** PD target (0.5 AUC = random guessing, so 0.86 is strong discrimination);
+  grades calibrated to a **count-weighted long-run average** and passed through a **formal
+  calibration test** (binomial traffic-light + Hosmer-Lemeshow).
 - **LGD validated:** my computed losses match Freddie Mac's own loss field at
   **0.99 correlation** — the model is grounded in reality, not assumption.
-- **Portfolio Expected Loss:** ~**$1.11bn** lifetime across 150,000 loans, of which
-  ~**$510m** is the IFRS 9 "reported" figure once accounting staging is applied.
+- **Portfolio Expected Loss:** ~**$113m** on a 12-month basis across 150,000 loans, rising
+  to ~**$230m** once IFRS 9 staging applies lifetime ECL to Stages 2 and 3.
 - **Stress test:** under a crisis-calibrated downturn, portfolio Expected Loss
   rises **~10×** — because PD and LGD get worse *at the same time*.
 
@@ -103,9 +109,9 @@ results table to [output/](output/).
 | **00** | [Load & assemble](notebooks/00_load_and_assemble.ipynb) | Took the raw Freddie Mac files (no column headers, ~8.8 million monthly rows), applied the official 32-column layout, verified the counts, joined each loan's facts to its monthly history, and collapsed it to one row per loan across all three years. | [Data-quality summary](output/00_data_quality.csv) |
 | **01** | [Base table](notebooks/01_base_table.ipynb) | Defined and flagged **default**, computed **EAD**, and computed **realised LGD from the real loss fields**; reconciled it to the dataset's own loss figure. | [Default & LGD by vintage](output/01_default_lgd_by_vintage.csv) |
 | **02** | [EDA](notebooks/02_eda.ipynb) | Showed how risk moves with the two classic drivers — credit score and loan-to-value — with saved charts. | [Risk by driver](output/02_risk_by_driver.csv) + charts |
-| **03** | [PD model](notebooks/03_pd_model.ipynb) | Built an interpretable **logistic-regression** default model and graded it (AUC/Gini/KS + a calibration check). | [PD metrics](output/03_pd_metrics.csv) |
-| **03b** | [PD scorecard](notebooks/03b_PD_Scorecard.ipynb) | Turned the PD into a **points-based scorecard** (WOE/IV binning + logistic, reusing my consumer-project helpers), sorted loans into **8 rating grades A–H**, and produced a **master scale** with predicted vs observed PD per grade and a downturn view. | [Master scale](output/03b_master_scale.csv) |
-| **03c** | [PD out-of-time validation](notebooks/03c_PD_OutOfTime_Validation.ipynb) | **Out-of-time / out-of-regime** test: refit PD on earlier vintages only and scored a held-out later one (no leakage). Shows rank-ordering **travels** across periods while the risk **level/stability shifts** (PSI), and a calm-trained model **under-predicts** a downturn. | [OOT validation](output/03c_oot_validation.csv) |
+| **03** | [PD model](notebooks/03_pd_model.ipynb) | Built an interpretable **logistic-regression** default model on the **one-year** PD target and graded it (AUC/Gini/KS + a calibration check). | [PD metrics](output/03_pd_metrics.csv) |
+| **03b** | [PD scorecard](notebooks/03b_PD_Scorecard.ipynb) | Turned the one-year PD into a **points-based scorecard** (WOE/IV + logistic), sorted loans into **8 rating grades A–H**, built the **master scale**, calibrated each grade to a **count-weighted long-run PD**, ran a **formal calibration test** (binomial traffic-light + Hosmer-Lemeshow), and applied a **PD margin of conservatism** and the **5 bps floor**. | [Master scale](output/03b_master_scale.csv), [calibration test](output/03d_pd_calibration_test.csv), [MoC + floor](output/03e_grade_pd_moc_floor.csv) |
+| **03c** | [PD out-of-time validation](notebooks/03c_PD_OutOfTime_Validation.ipynb) | **Out-of-time / out-of-regime** test on the one-year target: refit PD on earlier vintages only and scored a held-out later one (no leakage). Shows rank-ordering **travels** across periods while the risk **level/stability shifts** (PSI). | [OOT validation](output/03c_oot_validation.csv) |
 | **04** | [LGD model](notebooks/04_lgd_model.ipynb) | Built a **two-stage LGD model** (chance of a loss × size of the loss) on disposed defaults and produced a real **downturn LGD**; added the **economic (discounted)** loss and a separate **APRA capital view** (MI excluded, 20% reduction, 20% floor), a **margin of conservatism**, a **cyclicality test**, and an **incomplete-workout sensitivity**. | [LGD model summary](output/04_lgd_model.csv) |
 | **04b** | [LGD validation](notebooks/04b_LGD_Validation.ipynb) | Independent LGD validation mirroring the PD one: **out-of-time / out-of-regime**, a **cohort backtest**, **discrimination**, **stability**, and an external **benchmarking** note (APS 113 Validation; APG 113 para 140; WP14). | [LGD validation](output/04b_lgd_validation.csv) |
 | **05** | [EAD](notebooks/05_ead.ipynb) | Summarised exposure at default and explained, in one paragraph, why a term mortgage needs **no CCF** (unlike a credit card). | [EAD summary](output/05_ead_summary.csv) |
@@ -157,6 +163,11 @@ requires, and it is documented inside notebook 01.
   status ≥ 6) **or** ends in a credit-event zero-balance code (third-party sale,
   short sale/charge-off, REO disposition, note sale). A prepaid/matured loan is
   **not** a default.
+- **One-year PD target** (`default_within_12m`): a default occurring within the
+  **first 12 months** of the loan's life. A fixed 12-month window makes the three
+  vintages comparable and is the framework's one-year-PD basis (CRE36.63 / APS 113 Att D
+  PD para 2). The **PD model** is built on this; `ever_default` is retained for the
+  lifetime-EL view and the LGD population.
 - **EAD:** the outstanding balance at default. No CCF — a term mortgage is fully
   drawn at closing and has no undrawn limit (a credit card does, and would need one).
 - **Realised LGD** (`lgd`, IFRS 9 nominal): `Loss / EAD`, where
@@ -212,6 +223,29 @@ python run_notebooks.py all   # execute 00–08; writes tables to output/
 ```
 Notebook 00 does the heavy assembly once (~2 min) and caches a loan-level table;
 the rest run in seconds.
+
+## PD framework alignment (APS 113 / APG 113 / Basel / WP14)
+
+The PD work was moved from an "ever-defaulted, observed-to-date" flag onto a proper
+**one-year PD calibrated to a long-run average**. **Now implemented:**
+
+- **One-year default target** (`default_within_12m`) as the PD basis — a fixed 12-month
+  window per loan (CRE36.63 / APS 113 Att D PD para 2), making vintages comparable.
+- **Long-run grade PD** — each grade calibrated to the **count-weighted** (not EAD-weighted)
+  simple average across vintages of the one-year rate (APG 113 paras 110–114), with an
+  exposure-weighted figure shown for sensitivity only.
+- **Formal calibration test** — per-grade **binomial** under-estimation test with a
+  green/amber/red traffic-light, plus a portfolio **Hosmer-Lemeshow** chi-square, with the
+  correlated-default independence caveat stated (WP14).
+- **Margin of conservatism** (+25 bps overlay on grade PDs) and the **5 bps PD floor**
+  (APS 113 Att B para 1), the floor binding on ~1-in-5 loans at the per-loan level.
+- The PD feeding grades and Expected Loss is the one-year PD; **EL is the IFRS 9 Stage 1
+  (12-month) input**, with a transparent lifetime proxy for Stages 2 and 3.
+
+**Still documentation-only** (notebook 08): rating philosophy (PIT-leaning through-the-door,
+TTC approximated by long-run calibration — APG 113 para 73), override policy, use test,
+development/validation independence, the short 3-vintage observation window, and retail-pool
+framing (Part 2.4).
 
 ## LGD framework alignment (APS 113 / APG 113 / Basel / WP14)
 

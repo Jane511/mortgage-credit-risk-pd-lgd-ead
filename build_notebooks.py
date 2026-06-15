@@ -1078,13 +1078,15 @@ base['ifrs9_stage'] = np.where(base['ever_default'], 3, np.where(stage2, 2, 1))
 LIFETIME_HORIZON = 4
 base['el_reported'] = np.where(base['ifrs9_stage'] == 1, base['expected_loss'],
                                base['expected_loss'] * LIFETIME_HORIZON)"""),
-    code("""# Portfolio Expected Loss summary by IFRS 9 stage (the saved result).
+    code("""# Portfolio Expected Loss summary by IFRS 9 stage (the saved result). With a
+# one-year PD, `expected_loss_12m` is a 12-MONTH EL; `reported_expected_loss` applies
+# the IFRS 9 staging (12-month for Stage 1, lifetime proxy for Stages 2 & 3).
 el_summary = base.groupby('ifrs9_stage').agg(
     loans=('loan_sequence_number', 'size'),
     avg_pd=('pd_hat', 'mean'),
     avg_lgd=('lgd_hat', 'mean'),
     total_ead=('ead_loan', 'sum'),
-    lifetime_expected_loss=('expected_loss', 'sum'),
+    expected_loss_12m=('expected_loss', 'sum'),
     reported_expected_loss=('el_reported', 'sum'),
 ).reset_index().round(2)
 save_csv(el_summary, 'output/06_expected_loss.csv')
