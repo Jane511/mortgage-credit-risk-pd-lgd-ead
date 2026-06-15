@@ -298,3 +298,7 @@ reason for existing is the one thing the consumer project could not do: a **real
 modelled LGD from actual loss data**, plus a genuine observed downturn (the
 2007/2008 GFC vintages). Where the consumer card project uses a CCF for undrawn
 limits, this term-mortgage project deliberately does not — a point, not a gap.
+
+## License
+
+Released under the MIT License — free to read, run, and reuse with attribution.
