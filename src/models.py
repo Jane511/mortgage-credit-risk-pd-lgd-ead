@@ -40,11 +40,18 @@ def build_pd_design(df, dummy_columns=None):
     return X
 
 
-def fit_pd(df):
+# The PD target is the ONE-YEAR default flag (PD-1/PD-2): default within the first
+# 12 months of the loan's life, the framework's one-year-PD basis (CRE36.63 /
+# APS 113 Att D PD para 2). `ever_default` is retained for the lifetime/LGD views.
+PD_TARGET = "default_within_12m"
+
+
+def fit_pd(df, target=PD_TARGET):
     """Fit the logistic PD on origination features. Returns (pipeline, design
-    columns) so the same encoding can be reused to score any sample."""
+    columns) so the same encoding can be reused to score any sample. The target
+    defaults to the one-year default flag."""
     X = build_pd_design(df)
-    y = df["ever_default"].astype(int).values
+    y = df[target].astype(int).values
     model = Pipeline([
         ("scale", StandardScaler()),
         ("logit", LogisticRegression(max_iter=2000)),

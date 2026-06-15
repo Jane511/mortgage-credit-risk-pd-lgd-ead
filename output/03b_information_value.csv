@@ -1,8 +1,8 @@
 feature,information_value,strength
-credit_score,0.7303,very strong (check)
-original_cltv,0.2335,medium
-original_dti,0.2271,medium
-original_ltv,0.2213,medium
-loan_purpose,0.0413,weak
-original_loan_term,0.0056,not predictive
-occupancy_status,0.0037,not predictive
+credit_score,1.2241,very strong (check)
+original_cltv,0.3702,strong
+original_ltv,0.3635,strong
+original_dti,0.3454,strong
+original_loan_term,0.0121,not predictive
+loan_purpose,0.0108,not predictive
+occupancy_status,0.0096,not predictive

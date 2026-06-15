@@ -354,13 +354,14 @@ write("03_pd_model.ipynb", [
     md("""# 03 -- PD model (probability of default)
 
 **What this notebook does (plain English):** Builds a simple, transparent model
-that estimates each loan's **chance of defaulting** from facts known at the
-start (credit score, loan-to-value, debt-to-income, loan purpose, etc.). We use
-**logistic regression** -- the industry-standard interpretable scorecard method --
-and grade it the way a model-validation team would.
+that estimates each loan's **chance of defaulting within one year** from facts
+known at the start (credit score, loan-to-value, debt-to-income, loan purpose,
+etc.). We use **logistic regression** -- the industry-standard interpretable
+scorecard method -- and grade it the way a model-validation team would. The target
+is the **one-year** default flag (PD-1/PD-2), the framework's PD basis.
 
 **Headline result:** the model separates good from bad loans well, with an **AUC
-around 0.75-0.80** (a coin-flip would be 0.50), and its predicted default rates
+around 0.86** (a coin-flip would be 0.50), and its predicted one-year default rates
 track the actual ones closely."""),
     code(BOOTSTRAP),
     code("""# Load the base table and split into train/test (stratified on default).
@@ -369,13 +370,15 @@ from sklearn.model_selection import train_test_split
 from src import models, metrics
 from src.output import save_csv
 base = pd.read_parquet('data/processed/analysis_base.parquet')
-train, test = train_test_split(base, test_size=0.30, stratify=base['ever_default'], random_state=42)"""),
-    code("""# Fit the logistic PD on origination features and score the held-out test set.
+# PD target = the ONE-YEAR default flag (PD-1/PD-2), not the observed-to-date flag.
+PD_TARGET = 'default_within_12m'
+train, test = train_test_split(base, test_size=0.30, stratify=base[PD_TARGET], random_state=42)"""),
+    code("""# Fit the logistic one-year PD on origination features and score the held-out test set.
 model, columns = models.fit_pd(train)
 test = test.copy()
 test['pd_hat'] = models.predict_pd(model, columns, test)"""),
     code("""# Grade discrimination (AUC / Gini / KS) on the test set.
-y = test['ever_default'].astype(int)
+y = test[PD_TARGET].astype(int)
 auc = metrics.auc(y, test['pd_hat'])
 gini = metrics.gini(y, test['pd_hat'])
 ks = metrics.ks(y, test['pd_hat'])
@@ -426,12 +429,12 @@ defensible meaning.
 rate for each grade matches the *actual* default rate closely (a calibration
 check), and the safest grades hold most of the money at the lowest risk.
 
-**PD horizon (stated up front):** this is a **lifetime-to-date (observed-to-date)
-PD** -- a loan counts as a default if it *ever* reached serious default within
-the performance history observed for its origination year. The 2007/2008 books
-are observed for more years than 2015, so their windows are longer; the model
-itself uses only origination facts, so it stays a clean "through-the-door"
-scorecard read within this observed-to-date definition."""),
+**PD horizon (stated up front):** this is a **one-year PD** (PD-1/PD-2) -- a loan
+counts as a default if it reached serious default within the **first 12 months** of
+its life. A fixed 12-month window is the framework's one-year-PD basis (CRE36.63 /
+APS 113 Att D PD para 2) and makes the three vintages directly comparable, regardless
+of how long each was observed. The model uses only origination facts, so it stays a
+clean "through-the-door" scorecard read on that one-year horizon."""),
     code(BOOTSTRAP),
     code("""# Load the loan-level base table; target = 1 means the loan defaulted (a 'bad').
 import pandas as pd
@@ -441,7 +444,8 @@ from sklearn.linear_model import LogisticRegression
 from src import woe, transform, scorecard, metrics
 from src.output import save_csv
 base = pd.read_parquet('data/processed/analysis_base.parquet').copy()
-base['target'] = base['ever_default'].astype(int)"""),
+# PD target = the ONE-YEAR default flag (PD-1/PD-2).
+base['target'] = base['default_within_12m'].astype(int)"""),
     code("""# WOE-bin the main origination predictors on a train split and report each
 # feature's Information Value (IV) -- how predictive it is on its own.
 features = ['credit_score', 'original_ltv', 'original_cltv', 'original_dti',
@@ -525,10 +529,10 @@ only**, then used to score the held-out year. The pooled all-vintage model is
 *not* used here -- that would let the test data sneak into training.
 
 **Headline result:** the model's **rank-ordering holds up** out-of-time (it still
-sorts risky from safe), but **risk levels shift sharply across regimes** -- the
-crisis book averages ~10% default versus ~2% in the calm year, the score
-distribution moves wholesale (high PSI), and a model trained only on calm years
-**under-predicts** a downturn. That is exactly why PD models are recalibrated
+sorts risky from safe), but **risk levels are regime-sensitive** -- the crisis books
+average ~1% one-year default versus ~0.14% in the calm year, the score distribution
+moves wholesale (high PSI), and a level fitted in one regime cannot be trusted in
+another. That is exactly why PD models are recalibrated
 through the cycle."""),
     code(BOOTSTRAP),
     code("""# Load the base table and reuse the existing PD model + metrics helpers.
@@ -544,8 +548,8 @@ def evaluate_split(train_years, test_years, label):
     model, cols = models.fit_pd(tr)                 # fit on training years ONLY
     tr_pd = models.predict_pd(model, cols, tr)
     te_pd = models.predict_pd(model, cols, te)
-    ytr = tr['ever_default'].astype(int)
-    yte = te['ever_default'].astype(int)
+    ytr = tr['default_within_12m'].astype(int)      # one-year PD target (PD-1/PD-2)
+    yte = te['default_within_12m'].astype(int)
     detail = {'label': label, 'arrays': (ytr, tr_pd, yte, te_pd)}
     row = {
         'split': label,
@@ -581,20 +585,21 @@ for d in details:
     print(f"   test : AUC={metrics.auc(yte,te_pd):.3f} Gini={metrics.gini(yte,te_pd):.3f} KS={metrics.ks(yte,te_pd):.3f}")"""),
     md("""## Interpretation (plain English)
 
-- **Discrimination held out-of-time.** Same-regime (Split A) the test AUC even
-  edges up (~0.80); out-of-regime (Split B) it dips to ~0.70 but the model still
-  clearly **rank-orders** risky loans above safe ones. Sorting power travels across
-  periods, weakening across very different conditions.
-- **The risk *level* shifts hard across regimes.** The crisis training book averages
-  ~10% default versus ~2% in calm 2015, and the score distribution moves wholesale
-  (Split B **PSI ~1.6**, far above the 0.25 "material shift" line). The origination
-  features (credit score, LTV) absorb much of this, so the crisis model's *average*
-  predicted PD on 2015 happens to land near the observed rate -- but that relies on
-  the features doing the work; a level calibrated to the crisis would badly
-  over-state calm-period losses.
-- **The reverse what-if (Split C)** exposes the dangerous direction: a model trained
-  only on the calm 2015 book **under-predicts** the crisis (predicted ~7% vs observed
-  ~11%) -- the blind spot of a model built only in good times.
+- **Discrimination held out-of-time.** Across all splits the test AUC stays strong
+  (~0.79-0.82) -- the model still clearly **rank-orders** risky loans above safe ones,
+  so sorting power travels across periods.
+- **Levels travel well *within reach* of the training data.** Same-regime (Split A,
+  train 2007 -> test 2008) the average predicted one-year PD lands almost exactly on the
+  observed rate (~0.9% vs ~0.9%), and even crisis -> calm (Split B) lands close (~0.14%
+  vs ~0.14%) because the origination features (credit score, LTV) carry the level.
+- **But the population shift is huge.** Split B **PSI ~2.0** and Split C **PSI ~4.8**,
+  far above the 0.25 "material shift" line -- the score distributions barely overlap
+  across regimes, so a level that happens to land well is not something to rely on.
+- **The reverse what-if (Split C, train calm 2015 -> test crisis)** shows the level
+  breaking: keyed on the calm book, the model reads the crisis vintages' weak credit
+  features and predicts ~4% one-year PD against an observed ~1.1% -- it **over-states**
+  the one-year rate (most crisis defaults actually fall in years 2-4, outside the
+  one-year window). Either way, a level fitted in one regime is untrustworthy in another.
 - **Takeaway:** rank-ordering travels, but the *level* and *stability* do not. This
   is precisely why PD models are **recalibrated through the cycle** or carry a
   **macro overlay** -- the same lesson the stress test in notebook 07 makes
@@ -968,7 +973,8 @@ import numpy as np
 from src import models
 from src.output import save_csv
 base = pd.read_parquet('data/processed/analysis_base.parquet').copy()"""),
-    code("""# PD for every loan (logistic model fit on the whole book).
+    code("""# One-year PD for every loan (logistic model fit on the whole book). pd_hat is a
+# 12-month PD (PD-1/PD-2) -- exactly the IFRS 9 Stage 1 (12-month ECL) input.
 pd_model, pd_cols = models.fit_pd(base)
 base['pd_hat'] = models.predict_pd(pd_model, pd_cols, base)"""),
     code("""# LGD for every loan (two-stage model trained on disposed defaults).
@@ -984,9 +990,14 @@ base['expected_loss'] = base['pd_hat'] * base['lgd_hat'] * base['ead_loan']"""),
 # increase in risk (ever 60+ days late but not defaulted), 1 = performing.
 stage2 = (~base['ever_default']) & (base['max_delinq_status'].fillna(0) >= 2)
 base['ifrs9_stage'] = np.where(base['ever_default'], 3, np.where(stage2, 2, 1))
-# Stage 1 carries a 12-month EL; Stages 2 & 3 carry lifetime EL (here our PD is
-# a lifetime/observed PD, so we show a 12-month view as one quarter of it).
-base['el_reported'] = np.where(base['ifrs9_stage'] == 1, base['expected_loss'] * 0.25, base['expected_loss'])"""),
+# pd_hat is now a genuine 12-MONTH PD, which is exactly the Stage 1 (12-month ECL)
+# input -- so Stage 1 reported EL is the 12-month EL directly (no ad-hoc 0.25 factor
+# any more). Stages 2 & 3 need LIFETIME ECL; with only a one-year PD modelled here we
+# scale by a transparent multi-year horizon factor as a lifetime proxy (a production
+# model would estimate lifetime PD directly).
+LIFETIME_HORIZON = 4
+base['el_reported'] = np.where(base['ifrs9_stage'] == 1, base['expected_loss'],
+                               base['expected_loss'] * LIFETIME_HORIZON)"""),
     code("""# Portfolio Expected Loss summary by IFRS 9 stage (the saved result).
 el_summary = base.groupby('ifrs9_stage').agg(
     loans=('loan_sequence_number', 'size'),
