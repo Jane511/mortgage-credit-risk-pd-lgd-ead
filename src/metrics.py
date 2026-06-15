@@ -4,6 +4,7 @@ model-validation reviewer expects to see."""
 
 import numpy as np
 import pandas as pd
+from scipy import stats
 from sklearn.metrics import roc_auc_score
 
 
@@ -40,6 +41,35 @@ def calibration_table(y_true, y_score, n_bins=10):
     ).reset_index()
     tbl["bucket"] = tbl["bucket"].astype(str)
     return tbl
+
+
+def binomial_pd_test(predicted_pd, observed_defaults, n):
+    """One-sided binomial calibration test for PD UNDER-estimation (PD-4).
+
+    Under H0 the grade's defaults are Binomial(n, predicted_pd). The returned p-value
+    is P(X >= observed_defaults): a SMALL p means materially more defaults occurred
+    than the assigned PD predicts (the PD is under-estimated -> review).
+
+    NOTE: this assumes defaults are INDEPENDENT, which understates Type-I error when
+    defaults are correlated (WP14) -- so read amber/red as a prompt, not a hard fail.
+    """
+    p = min(max(float(predicted_pd), 1e-9), 1 - 1e-9)
+    return float(stats.binom.sf(int(observed_defaults) - 1, int(n), p))
+
+
+def hosmer_lemeshow(y_true, y_score, n_bins=10):
+    """Hosmer-Lemeshow chi-square calibration test (PD-4). Bucket by predicted score
+    into deciles, compare observed vs expected defaults, sum (O-E)^2 / (E(1-E/n))
+    over the buckets -> chi-square with (n_bins - 2) dof. Returns (statistic, p_value);
+    a small p-value means observed and predicted diverge across the deciles."""
+    df = pd.DataFrame({"y": np.asarray(y_true, dtype=float), "p": np.asarray(y_score, dtype=float)})
+    df["bin"] = pd.qcut(df["p"], n_bins, duplicates="drop")
+    g = df.groupby("bin", observed=True).agg(n=("y", "size"), obs=("y", "sum"), exp=("p", "sum"))
+    g = g[g["n"] > 0]
+    denom = (g["exp"] * (1 - g["exp"] / g["n"])).replace(0, np.nan)
+    stat = float((((g["obs"] - g["exp"]) ** 2) / denom).sum())
+    dof = max(len(g) - 2, 1)
+    return stat, float(stats.chi2.sf(stat, dof))
 
 
 def psi(expected, actual, n_bins=10):

@@ -505,6 +505,33 @@ years**, so this simple across-year average is skewed toward downturn conditions
 conservatism is appropriate for capital, but it is a real limitation -- it is exactly
 why the **margin of conservatism** (PD-5) and the documented short-observation-window
 note (PD-8) exist, and a fuller cycle of vintages would dilute the crisis weighting."""),
+    code("""# PD-4: FORMAL calibration test per grade -- a one-sided binomial test for PD
+# under-estimation with a green/amber/red traffic-light, plus a portfolio-level
+# Hosmer-Lemeshow chi-square. Tests calibration, not just charts it (Part 5.3).
+gt = base.groupby('grade', observed=True).agg(
+    n=('target', 'size'), observed_defaults=('target', 'sum')).reset_index()
+gt = gt.merge(master[['grade', 'long_run_pd']], on='grade')
+gt['observed_rate'] = (gt['observed_defaults'] / gt['n']).round(4)
+gt['binom_p_underest'] = [round(metrics.binomial_pd_test(p, dft, n), 4)
+                          for p, dft, n in zip(gt['long_run_pd'], gt['observed_defaults'], gt['n'])]
+gt['flag'] = gt['binom_p_underest'].apply(
+    lambda p: 'green' if p > 0.05 else ('amber' if p > 0.01 else 'red'))
+hl_stat, hl_p = metrics.hosmer_lemeshow(base['target'], base['pd_hat'], n_bins=10)
+print(f'Hosmer-Lemeshow (10 deciles): chi2={hl_stat:.2f}  p={hl_p:.3f}')
+save_csv(gt, 'output/03d_pd_calibration_test.csv')
+gt"""),
+    md("""**Reading the calibration test (PD-4).** For each grade we test the assigned
+**long-run PD** against the defaults actually observed: `binom_p_underest` is the
+one-sided binomial p-value that the grade has **more** defaults than its PD predicts,
+and the `flag` turns **amber/red** when that p-value falls below 0.05 / 0.01. The
+portfolio **Hosmer-Lemeshow** chi-square does the same across deciles in one number.
+
+**Independence caveat (WP14).** The binomial test assumes defaults are **independent**.
+In a mortgage book they are not -- borrowers default together in a downturn -- so the
+test **understates** the true Type-I error and will flag amber/red more readily than a
+correlation-aware test would. Read any amber/red as a **prompt for review**, not a hard
+pass/fail; the margin of conservatism (PD-5) is the deliberate response to exactly this
+kind of correlated-tail uncertainty."""),
     code("""# Downturn view: reuse the stress logic (PD multiplier = crisis vs calm default
 # rate) to show how each grade's predicted PD shifts in a recession.
 calm = base[base['vintage_year'] == 2015]
