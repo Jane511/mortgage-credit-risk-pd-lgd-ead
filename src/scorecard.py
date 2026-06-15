@@ -63,6 +63,25 @@ def master_scale(df, grade_col, pd_col, target_col, exposure_col, score_col=None
     return g.sort_values(grade_col).reset_index(drop=True)
 
 
+def long_run_grade_pd(df, grade_col, target_col, year_col, exposure_col=None):
+    """Long-run PD per grade (PD-3): the one-year default rate computed PER YEAR and
+    then SIMPLE-averaged across the years -- count-weighted *within* each year, equal
+    weight *across* years. This is the framework's calibration basis (APG 113 paras
+    110-114; APS 113 Att D PD para 3 -- count-weighted, NOT exposure-weighted).
+
+    If `exposure_col` is given, also returns an EXPOSURE-weighted PD per grade for
+    sensitivity review only (APG 113 para 114) -- clearly not the calibration figure.
+    """
+    per_year = df.groupby([grade_col, year_col], observed=True)[target_col].mean()
+    out = per_year.groupby(level=0).mean().rename("long_run_pd").reset_index()
+    if exposure_col is not None:
+        ew = (df.groupby(grade_col, observed=True)
+                .apply(lambda g: np.average(g[target_col], weights=g[exposure_col]))
+                .rename("exposure_weighted_pd").reset_index())
+        out = out.merge(ew, on=grade_col)
+    return out
+
+
 def scorecard_points(binning_store, woe_tables, coefs, intercept, factor, offset):
     """Per-bin points table: each feature band's contribution to the score.
     Points for a loan sum to its total score, so the card is fully transparent."""

@@ -480,9 +480,31 @@ points.head(15)"""),
     code("""# Sort every loan into 8 rating grades (A safest) and build the MASTER SCALE:
 # predicted PD vs observed default rate, with loan count and exposure share.
 base['grade'] = scorecard.assign_grades(base['score'], n_grades=8)
-master = scorecard.master_scale(base, 'grade', 'pd_hat', 'target', 'original_upb', score_col='score')
+master = scorecard.master_scale(base, 'grade', 'pd_hat', 'target', 'original_upb', score_col='score')"""),
+    code("""# PD-3: calibrate each grade to its LONG-RUN PD -- the simple average ACROSS the
+# three vintages of the per-year one-year default rate (count-weighted within year),
+# the framework basis (APG 113 paras 110-114; count-weighted, not exposure-weighted).
+lr = scorecard.long_run_grade_pd(base, 'grade', 'target', 'vintage_year', exposure_col='original_upb')
+master = master.merge(lr, on='grade', how='left')
+master['long_run_pd'] = master['long_run_pd'].round(4)
+master['exposure_weighted_pd'] = master['exposure_weighted_pd'].round(4)  # sensitivity only
 save_csv(master, 'output/03b_master_scale.csv')
-master"""),
+master[['grade', 'predicted_pd', 'long_run_pd', 'observed_default_rate',
+        'exposure_weighted_pd', 'loans', 'exposure_share']]"""),
+    md("""**Long-run grade PD (PD-3).** `predicted_pd` is the model's average per grade;
+`long_run_pd` is the framework's calibration figure -- for each grade we take the
+one-year default rate **in each vintage** and then **simple-average across the three
+vintages** (each loan counts once *within* a year; each year counts equally *across*
+years, per APS 113 Att D PD para 3, which is **count-weighted, not EAD-weighted**).
+The two columns are close, confirming the model is well-calibrated in level, not just
+in rank. `exposure_weighted_pd` is shown for **sensitivity review only** (APG 113 para
+114) and is explicitly *not* the calibration figure.
+
+**Downturn-heavy caveat.** Only three vintages are available and **two are crisis
+years**, so this simple across-year average is skewed toward downturn conditions. That
+conservatism is appropriate for capital, but it is a real limitation -- it is exactly
+why the **margin of conservatism** (PD-5) and the documented short-observation-window
+note (PD-8) exist, and a fuller cycle of vintages would dilute the crisis weighting."""),
     code("""# Downturn view: reuse the stress logic (PD multiplier = crisis vs calm default
 # rate) to show how each grade's predicted PD shifts in a recession.
 calm = base[base['vintage_year'] == 2015]
