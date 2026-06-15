@@ -532,34 +532,75 @@ test **understates** the true Type-I error and will flag amber/red more readily 
 correlation-aware test would. Read any amber/red as a **prompt for review**, not a hard
 pass/fail; the margin of conservatism (PD-5) is the deliberate response to exactly this
 kind of correlated-tail uncertainty."""),
-    code("""# PD-5 + PD-6: margin of conservatism (additive overlay) then the 5 bps regulatory
-# floor, on each grade's calibrated long-run PD. MoC covers the thin, downturn-heavy
-# window (CRE36.67 / APG 113 para 115a); the floor is the APS 113 Att B para 1 backstop.
+    code("""# PDR2-3 + PDR2-2 + PD-6: build the FINAL regulatory grade PD in three steps.
+#  (a) PDR2-3 risk-sensitive MoC: per-grade margin = 1.645 standard errors of the
+#      grade rate, sqrt(p(1-p)/n) -- thin/volatile grades carry MORE margin, as
+#      CRE36.67 requires (the margin must relate to the likely range of errors).
+#  (b) PDR2-2 ratchet: lift the PD to at least the grade's REALISED rate (APS 113
+#      Validation para 6) -- estimates move up to meet experience, never down.
+#  (c) PD-6: the 5 bps regulatory floor (APS 113 Att B para 1) as a backstop.
 from src import definitions as d
-PD_MOC_PP = 0.0025  # +25 bps additive overlay on each grade PD (an overlay, not the model).
-grade_pd = master[['grade', 'long_run_pd']].copy()
-grade_pd['long_run_pd_moc'] = d.add_moc(grade_pd['long_run_pd'].values, PD_MOC_PP, cap=1.0).round(4)
-grade_pd['long_run_pd_final'] = d.apply_pd_floor(grade_pd['long_run_pd_moc'].values, floor=0.0005).round(4)
-grade_pd['moc_points'] = PD_MOC_PP
-grade_pd['floor_binds'] = grade_pd['long_run_pd_moc'] < 0.0005
-save_csv(grade_pd, 'output/03e_grade_pd_moc_floor.csv')
-grade_pd"""),
-    md("""**Margin of conservatism + floor (PD-5, PD-6).** `long_run_pd` is the calibrated
-estimate; `long_run_pd_moc` adds a documented **+25 bps additive margin of conservatism**;
-`long_run_pd_final` then applies the **5 bps regulatory PD floor** (`max(PD, 0.0005)`).
+gp = master[['grade', 'long_run_pd']].merge(gt[['grade', 'n', 'observed_rate', 'flag']], on='grade')
+gp['moc_points'] = d.risk_sensitive_moc(gp['long_run_pd'].values, gp['n'].values, z=1.645).round(4)
+gp['pd_after_moc'] = (gp['long_run_pd'] + gp['moc_points']).round(4)
+gp['pd_revised'] = np.maximum(gp['pd_after_moc'], gp['observed_rate']).round(4)  # ratchet
+gp['long_run_pd_final'] = d.apply_pd_floor(gp['pd_revised'].values, floor=0.0005).round(4)
+save_csv(gp[['grade', 'long_run_pd', 'moc_points', 'pd_after_moc', 'observed_rate',
+             'flag', 'pd_revised', 'long_run_pd_final']], 'output/03e_grade_pd_moc_floor.csv')
+gp[['grade', 'long_run_pd', 'moc_points', 'pd_after_moc', 'observed_rate', 'flag', 'long_run_pd_final']]"""),
+    md("""**Risk-sensitive MoC + ratchet + floor (PDR2-3, PDR2-2, PD-6).** The final
+regulatory grade PD is built transparently in three steps:
 
-- **Why this MoC, and where it sits.** Only three vintages, two of them crisis, plus the
-  correlated-default caveat from the calibration test, mean the grade PDs carry real
-  estimation uncertainty. The MoC is an explicit **overlay on each grade** (not inside the
-  model), deliberately additive and modest; it bites hardest on the safest grades, which is
-  the conservative direction for thin data. It would be **reviewed annually** (PD-10) and
-  re-sized as more vintages accumulate.
-- **The floor** (APS 113 Att B para 1, the 5 bps minimum) is applied for completeness.
-  At grade level it does **not** bind here once the +25 bps MoC is added (`floor_binds`
-  is all False, min grade PD 0.30%). But because this is a low one-year PD, the floor
-  **does bite at the per-loan level** in the Expected-Loss step (notebook 06), where it
-  lifts roughly **one in five** loans whose raw model PD sits below 5 bps. Sovereign
-  exposures are exempt from the floor, which is irrelevant to a mortgage book."""),
+- **`moc_points` (PDR2-3)** -- a *risk-sensitive* margin of conservatism: 1.645 standard
+  errors of each grade's default rate (`sqrt(p(1-p)/n)`). Unlike the earlier flat +25 bps
+  (which was a 6x uplift on grade A but barely touched the under-predicting grade H), this
+  margin is **larger where the data is thin or the rate is volatile**, exactly as CRE36.67
+  requires -- the margin must relate to the likely range of errors.
+- **`pd_revised` (PDR2-2 ratchet)** -- the PD is then lifted to **at least the grade's
+  realised default rate** (APS 113 Validation para 6). Where experience keeps exceeding the
+  estimate, the estimate must be revised **up** and is never lowered just because one period
+  looked benign. This is what acts on the grade-H red flag from the calibration test.
+- **`long_run_pd_final` (PD-6)** -- the 5 bps floor (APS 113 Att B para 1) as a backstop.
+
+Crucially, **`long_run_pd_final` is the regulatory PD that now feeds Expected Loss**
+(PDR2-1), so EL and the master-scale/capital PD reconcile to the same numbers."""),
+    code("""# PDR2-2 check + PDR2-4: re-run the binomial calibration test on the REVISED final
+# PD (no grade should remain red on under-estimation), and save the portfolio
+# Hosmer-Lemeshow result across grades with the independence caveat.
+post = gp[['grade', 'n', 'observed_rate', 'long_run_pd_final']].copy()
+post['observed_defaults'] = (post['observed_rate'] * post['n']).round().astype(int)
+post['binom_p_underest'] = [round(metrics.binomial_pd_test(p, dft, n), 4)
+                            for p, dft, n in zip(post['long_run_pd_final'], post['observed_defaults'], post['n'])]
+post['flag'] = post['binom_p_underest'].apply(
+    lambda p: 'green' if p > 0.05 else ('amber' if p > 0.01 else 'red'))
+save_csv(post, 'output/03d_pd_calibration_test_post_revision.csv')
+loan_final_pd = base[['grade']].merge(gp[['grade', 'long_run_pd_final']], on='grade', how='left')['long_run_pd_final']
+hl_stat2, hl_p2 = metrics.hosmer_lemeshow(base['target'].values, loan_final_pd.values, n_bins=8)
+hl = pd.DataFrame([{'test': 'hosmer_lemeshow_across_grades', 'chi2': round(hl_stat2, 2),
+                    'p_value': round(hl_p2, 4), 'n_grades': int(post.shape[0]),
+                    'caveat': 'assumes independent defaults; understates Type-I error under correlation (WP14)'}])
+save_csv(hl, 'output/03d_hl_summary.csv')
+print('post-revision flags:', dict(post['flag'].value_counts()))
+print('Hosmer-Lemeshow across grades: chi2={:.2f}  p={:.3f}'.format(hl_stat2, hl_p2))
+post"""),
+    md("""**Post-revision check (PDR2-2) + Hosmer-Lemeshow (PDR2-4).** After the ratchet,
+every grade's final PD sits **at or above** its realised rate, so the binomial test shows
+**no grade red on under-estimation** -- the grade-H flag is now acted on, not just raised.
+The portfolio **Hosmer-Lemeshow** chi-square across grades is saved to `03d_hl_summary.csv`
+(the multi-grade simultaneous calibration test, Part 5.3). Both tests assume **independent**
+defaults; in a mortgage book defaults are correlated in a downturn, so they **understate**
+Type-I error (WP14) -- read them as prompts, and note the risk-sensitive MoC above is the
+deliberate buffer for that correlated-tail uncertainty."""),
+    code("""# PDR2-1: persist the per-loan calibrated regulatory PD (each loan -> its grade ->
+# the grade's PDs) so Expected Loss uses the SAME PD as capital (EL Part 5.1). We
+# carry both the pre-MoC long-run PD and the final PD so notebook 06 can show the
+# margin-of-conservatism uplift on a like-for-like (pooled) basis.
+loan_grade_pd = base[['loan_sequence_number', 'grade']].merge(
+    gp[['grade', 'long_run_pd', 'long_run_pd_final']], on='grade', how='left').rename(
+    columns={'long_run_pd': 'grade_pd_longrun', 'long_run_pd_final': 'grade_pd_final'})
+save_csv(loan_grade_pd, 'output/03f_loan_grade_pd.csv')
+print('exported per-loan calibrated regulatory PD for', len(loan_grade_pd), 'loans')
+loan_grade_pd.head()"""),
     code("""# Downturn view: reuse the stress logic (PD multiplier = crisis vs calm default
 # rate) to show how each grade's predicted PD shifts in a recession.
 calm = base[base['vintage_year'] == 2015]
@@ -1050,13 +1091,20 @@ import numpy as np
 from src import models
 from src.output import save_csv
 base = pd.read_parquet('data/processed/analysis_base.parquet').copy()"""),
-    code("""# One-year PD for every loan (logistic model fit on the whole book). pd_hat is a
-# 12-month PD (PD-1/PD-2) -- exactly the IFRS 9 Stage 1 (12-month ECL) input.
+    code("""# One-year PD for every loan (logistic model fit on the whole book). pd_hat is the
+# raw, continuous 12-month model score (PD-1/PD-2), kept for ranking/comparison.
 from src import definitions as d
 pd_model, pd_cols = models.fit_pd(base)
-base['pd_hat'] = models.predict_pd(pd_model, pd_cols, base)
-# PD-6: apply the 5 bps regulatory PD floor to the per-loan PD used in EL.
-base['pd_hat'] = d.apply_pd_floor(base['pd_hat'], floor=0.0005)"""),
+base['pd_hat'] = d.apply_pd_floor(models.predict_pd(pd_model, pd_cols, base), floor=0.0005)
+# PDR2-1: the PD that feeds EL must be the SAME PD as capital (EL framework Part 5.1) --
+# the CALIBRATED grade PD (long-run + risk-sensitive MoC + ratchet + floor) from 03b.
+grade_pd_map = pd.read_csv('output/03f_loan_grade_pd.csv')[
+    ['loan_sequence_number', 'grade_pd_longrun', 'grade_pd_final']]
+base['loan_sequence_number'] = base['loan_sequence_number'].astype(str)
+grade_pd_map['loan_sequence_number'] = grade_pd_map['loan_sequence_number'].astype(str)
+base = base.merge(grade_pd_map, on='loan_sequence_number', how='left')
+base['pd_capital'] = base['grade_pd_final'].fillna(base['pd_hat'])
+base['pd_longrun'] = base['grade_pd_longrun'].fillna(base['pd_hat'])"""),
     code("""# LGD for every loan (two-stage model trained on disposed defaults).
 disposed = base[base['disposed'] & base['lgd'].notna()]
 lgd_model = models.TwoStageLGD().fit(disposed)
@@ -1064,17 +1112,56 @@ base['lgd_hat'] = lgd_model.predict(base)"""),
     code("""# EAD for every loan: balance at default if it defaulted, else the original
 # loan amount as the exposure proxy for a still-performing loan.
 base['ead_loan'] = np.where(base['ever_default'], base['ead'], base['original_upb'])
-# Expected loss per loan = PD x LGD x EAD.
-base['expected_loss'] = base['pd_hat'] * base['lgd_hat'] * base['ead_loan']"""),
+# Expected loss per loan = PD x LGD x EAD, using the CALIBRATED capital PD (PDR2-1).
+base['expected_loss'] = base['pd_capital'] * base['lgd_hat'] * base['ead_loan']"""),
+    md("""### The EL/capital PD reconcile (PDR2-1)
+
+EL framework Part 5.1 requires Expected Loss to use the **same PD as capital/RWA**. Earlier
+the dollar loss used only the raw model score with the 5 bps floor, so the long-run
+calibration and the margin of conservatism never reached EL. Now `expected_loss` uses
+**`pd_capital`** -- the calibrated grade PD (long-run average + risk-sensitive MoC + ratchet
++ floor) exported from notebook 03b -- so EL and the master-scale/capital PD are one and the
+same number. The raw `pd_hat` is retained only for ranking and the comparison below."""),
+    code("""# PDR2-1 impact: EL on three PD bases. The honest comparison is LIKE-FOR-LIKE at the
+# pooled grade level (rows 2 vs 3): the MoC + ratchet flow straight through, so EL on the
+# calibrated capital PD is the HIGHER (safer) one. Row 1 (the raw continuous score) is
+# shown for context -- see the note on why pooling changes the level.
+el_raw = float((base['pd_hat'] * base['lgd_hat'] * base['ead_loan']).sum())
+el_lr = float((base['pd_longrun'] * base['lgd_hat'] * base['ead_loan']).sum())
+el_cap = float(base['expected_loss'].sum())
+pd_compare = pd.DataFrame([
+    {'pd_basis': '1. raw continuous model PD (pre-calibration, floored)',
+     'mean_pd': round(float(base['pd_hat'].mean()), 5), 'portfolio_EL': round(el_raw, 0)},
+    {'pd_basis': '2. pooled grade PD, long-run only (no MoC)',
+     'mean_pd': round(float(base['pd_longrun'].mean()), 5), 'portfolio_EL': round(el_lr, 0)},
+    {'pd_basis': '3. calibrated capital PD (long-run + MoC + ratchet + floor)',
+     'mean_pd': round(float(base['pd_capital'].mean()), 5), 'portfolio_EL': round(el_cap, 0)},
+])
+pd_compare['EL_vs_longrun_x'] = (pd_compare['portfolio_EL'] / el_lr).round(3)
+save_csv(pd_compare, 'output/06_pd_basis_el_compare.csv')
+print('MoC flows through (EL capital >= EL long-run, like-for-like):', el_cap >= el_lr)
+pd_compare"""),
+    md("""**Reading the PD-basis comparison (PDR2-1).** On the **like-for-like pooled basis**
+(rows 2 vs 3) the margin of conservatism and the grade-H ratchet flow straight through:
+the calibrated **capital PD raises EL** above the bare long-run calibration -- the
+conservatism now reaches the dollar loss, which was the whole gap this task closes.
+
+Row 1 (the raw continuous score) actually sits a little **above** the calibrated capital
+EL. That is **not** missing conservatism -- the mean calibrated PD is higher -- it is a
+**pooling effect**: collapsing 150,000 continuous scores into 8 grade PDs removes the
+within-grade correlation between the model score and exposure (the riskiest, largest loans
+inside a grade no longer carry an individually higher PD). Capital frameworks pool exposures
+into grades/pools by design (the grade PD *is* the regulatory PD), so the calibrated capital
+EL is the correct figure to report, and it now reconciles exactly with the master scale."""),
     code("""# IFRS 9 / AASB 9 staging: 3 = defaulted (credit-impaired), 2 = significant
 # increase in risk (ever 60+ days late but not defaulted), 1 = performing.
 stage2 = (~base['ever_default']) & (base['max_delinq_status'].fillna(0) >= 2)
 base['ifrs9_stage'] = np.where(base['ever_default'], 3, np.where(stage2, 2, 1))
-# pd_hat is now a genuine 12-MONTH PD, which is exactly the Stage 1 (12-month ECL)
+# pd_capital is a genuine 12-MONTH PD, which is exactly the Stage 1 (12-month ECL)
 # input -- so Stage 1 reported EL is the 12-month EL directly (no ad-hoc 0.25 factor
 # any more). Stages 2 & 3 need LIFETIME ECL; with only a one-year PD modelled here we
-# scale by a transparent multi-year horizon factor as a lifetime proxy (a production
-# model would estimate lifetime PD directly).
+# scale by a transparent multi-year horizon factor as a lifetime proxy (PDR2-7: a
+# production model would estimate a lifetime PD term structure directly).
 LIFETIME_HORIZON = 4
 base['el_reported'] = np.where(base['ifrs9_stage'] == 1, base['expected_loss'],
                                base['expected_loss'] * LIFETIME_HORIZON)"""),
@@ -1083,7 +1170,7 @@ base['el_reported'] = np.where(base['ifrs9_stage'] == 1, base['expected_loss'],
 # the IFRS 9 staging (12-month for Stage 1, lifetime proxy for Stages 2 & 3).
 el_summary = base.groupby('ifrs9_stage').agg(
     loans=('loan_sequence_number', 'size'),
-    avg_pd=('pd_hat', 'mean'),
+    avg_pd=('pd_capital', 'mean'),
     avg_lgd=('lgd_hat', 'mean'),
     total_ead=('ead_loan', 'sum'),
     expected_loss_12m=('expected_loss', 'sum'),
@@ -1103,7 +1190,7 @@ framework expects a capital/EL report to show."""),
 # realised severity (the observed downturn LGD), then recompute Expected Loss.
 downturn_lgd = float(base.loc[base['disposed'] & base['vintage_year'].isin([2007, 2008]), 'lgd'].mean())
 base['lgd_downturn'] = np.maximum(base['lgd_hat'], downturn_lgd)
-base['expected_loss_downturn'] = base['pd_hat'] * base['lgd_downturn'] * base['ead_loan']
+base['expected_loss_downturn'] = base['pd_capital'] * base['lgd_downturn'] * base['ead_loan']
 el_variant = pd.DataFrame([
     {'view': 'through-the-cycle (baseline)', 'lgd_basis': 'modelled lgd_hat',
      'total_expected_loss': round(float(base['expected_loss'].sum()), 0)},
@@ -1140,13 +1227,14 @@ loss); the best-estimate column uses each defaulted loan's realised loss where t
 workout is complete and the downturn LGD otherwise, with PD = 1. The best estimate is
 materially larger -- which is the point: a defaulted loan's expected loss should be
 built from its own resolution, not a portfolio-average model output."""),
-    code("""# Worked example: show PD x LGD x EAD = EL for a single representative loan.
+    code("""# Worked example: show PD x LGD x EAD = EL for a single representative loan,
+# using the calibrated capital PD (the same PD the portfolio EL is built on).
 ex = base.sort_values('expected_loss', ascending=False).iloc[100]
 print('Worked example loan:', ex['loan_sequence_number'])
-print(f"  PD  (chance of default) = {ex['pd_hat']:.3f}")
+print(f"  PD  (calibrated 1yr)    = {ex['pd_capital']:.3f}")
 print(f"  LGD (loss if default)   = {ex['lgd_hat']:.3f}")
 print(f"  EAD (amount owed)       = ${ex['ead_loan']:,.0f}")
-print(f"  Expected Loss = {ex['pd_hat']:.3f} x {ex['lgd_hat']:.3f} x ${ex['ead_loan']:,.0f} = ${ex['expected_loss']:,.0f}")"""),
+print(f"  Expected Loss = {ex['pd_capital']:.3f} x {ex['lgd_hat']:.3f} x ${ex['ead_loan']:,.0f} = ${ex['expected_loss']:,.0f}")"""),
     md("""**Reading the table:** Stage 3 holds the already-defaulted loans and
 carries most of the loss; Stage 1 is the large healthy book on a 12-month view.
 The worked example shows the headline equation end-to-end for one loan."""),

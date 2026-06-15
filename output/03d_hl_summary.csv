@@ -1,0 +1,2 @@
+test,chi2,p_value,n_grades,caveat
+hosmer_lemeshow_across_grades,16.2,0.0063,8,assumes independent defaults; understates Type-I error under correlation (WP14)

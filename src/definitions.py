@@ -188,6 +188,17 @@ def apply_pd_floor(pd_values, floor=0.0005):
     return np.where(np.isnan(pd_values), pd_values, np.maximum(pd_values, floor))
 
 
+def risk_sensitive_moc(pd_values, n, z=1.645):
+    """Risk-sensitive margin of conservatism (PDR2-3 / CRE36.67): a per-grade add-on
+    tied to the LIKELY RANGE OF ERRORS rather than a flat number. Returns z standard
+    errors of each grade's default rate, sqrt(p(1-p)/n) -- so thin or volatile grades
+    carry MORE margin than large, stable ones. z=1.645 is the one-sided 95% multiple."""
+    p = np.asarray(pd_values, dtype=float)
+    n = np.asarray(n, dtype=float)
+    se = np.sqrt(np.clip(p * (1.0 - p), 0, None) / np.maximum(n, 1.0))
+    return z * se
+
+
 def add_moc(lgd, add_pp=0.05, cap=1.10):
     """Margin of conservatism overlay (CRE36.67 / Step 11). An ADDITIVE add-on, in
     LGD points, to cover the thin data and short observation window (3 vintages) and

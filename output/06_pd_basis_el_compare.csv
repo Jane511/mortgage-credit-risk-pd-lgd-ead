@@ -1,0 +1,4 @@
+pd_basis,mean_pd,portfolio_EL,EL_vs_longrun_x
+"1. raw continuous model PD (pre-calibration, floored)",0.00782,113340944.0,1.234
+"2. pooled grade PD, long-run only (no MoC)",0.00727,91875710.0,1.0
+3. calibrated capital PD (long-run + MoC + ratchet + floor),0.00832,105068726.0,1.144
