@@ -1,13 +1,13 @@
 """
-reports/make_figures.py — regenerate the README charts for this repo.
+tools/make_figures.py — regenerate the README charts for this repo.
 
-Every figure is built from the committed pipeline outputs in output/ (aggregated
+Every figure is built from the committed pipeline outputs in outputs/tables/ (aggregated
 results only — rates, totals, distributions; never raw loan-level records), so the
 charts regenerate reproducibly with:
 
-    python reports/make_figures.py
+    python tools/make_figures.py
 
-Outputs PNGs into reports/figures/.
+Outputs PNGs into outputs/charts/.
 """
 from pathlib import Path
 
@@ -17,8 +17,8 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / "output"
-FIG = ROOT / "reports" / "figures"
+OUT = ROOT / "outputs" / "tables"
+FIG = ROOT / "outputs" / "charts"
 FIG.mkdir(parents=True, exist_ok=True)
 
 plt.rcParams.update({
@@ -38,19 +38,19 @@ def save(fig, name):
 
 
 # 1. Expected Loss — baseline vs stressed (the ~10x headline) ----------------
-st = pd.read_csv(OUT / "07_stress_test.csv").set_index("measure")
-base = st.loc["expected_loss", "baseline"] / 1e6
-stress = st.loc["expected_loss", "stressed"] / 1e6
-uplift = st.loc["EL_uplift_x", "stressed"]
-fig, ax = plt.subplots(figsize=(6.5, 4.6))
-bars = ax.bar(["Baseline\n(calm)", "Stressed\n(downturn)"], [base, stress],
-              color=[CALM, CRISIS], width=0.6)
-for b, v in zip(bars, [base, stress]):
+st = pd.read_csv(OUT / "07_stress_test.csv").set_index("scenario")
+order = ["baseline", "mild recession", "severely adverse"]
+vals = [st.loc[s, "expected_loss"] / 1e6 for s in order]
+sev_uplift = st.loc["severely adverse", "EL_uplift_x"]
+fig, ax = plt.subplots(figsize=(6.8, 4.6))
+bars = ax.bar(["Baseline\n(calm)", "Mild\nrecession", "Severely\nadverse"], vals,
+              color=[CALM, "#f0a500", CRISIS], width=0.62)
+for b, v in zip(bars, vals):
     ax.text(b.get_x() + b.get_width() / 2, v, f"${v:,.0f}m",
             ha="center", va="bottom", fontweight="bold")
 ax.set_ylabel("portfolio expected loss ($m)")
-ax.set_title(f"Expected loss rises ~{uplift:.0f}× under a downturn")
-ax.set_ylim(0, stress * 1.18)
+ax.set_title(f"Expected loss rises ~{sev_uplift:.0f}× under a severe downturn")
+ax.set_ylim(0, max(vals) * 1.18)
 save(fig, "expected_loss_base_vs_stress.png")
 
 # 2. Default rate by vintage (crisis vs calm) --------------------------------

@@ -1,7 +1,7 @@
 """Generate the 00-08 notebooks for the Mortgage Credit Risk project.
 
 Each notebook = a plain-English HR summary at the top, code cells with one
-comment each, and exactly one results table saved to output/. Heavy logic lives
+comment each, and exactly one results table saved to outputs/tables/. Heavy logic lives
 in src/ so the notebooks stay short and readable. Run:  python build_notebooks.py
 """
 
@@ -80,7 +80,7 @@ dq['default_rate'] = (dq['defaults'] / dq['loans']).round(4)
 dq = dq.reset_index()"""),
     code("""# Save the one results table for this notebook.
 from src.output import save_csv
-save_csv(dq, 'output/00_data_quality.csv')
+save_csv(dq, 'outputs/tables/00_data_quality.csv')
 dq"""),
     md("""**Reading the table:** each vintage is a 50,000-loan random sample. The
 `default_rate` column is the share of loans that ever hit serious default. The
@@ -283,7 +283,7 @@ tbl = df.groupby('vintage_year').agg(
     median_lgd=('lgd', 'median'),
     avg_ead=('ead', 'mean'),
 ).reset_index().round(4)
-save_csv(tbl, 'output/01_default_lgd_by_vintage.csv')
+save_csv(tbl, 'outputs/tables/01_default_lgd_by_vintage.csv')
 tbl"""),
     md("""**Reading the table:** both the chance of default *and* the severity of
 loss when it happens are much worse in the crisis vintages -- the two effects
@@ -319,17 +319,17 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from src.output import save_csv
 base = pd.read_parquet('data/processed/analysis_base.parquet')
-os.makedirs('output/readme_assets', exist_ok=True)"""),
+os.makedirs('outputs/charts', exist_ok=True)"""),
     code("""# Default rate by credit-score band.
 by_score = base.groupby('credit_score_band', observed=True)['ever_default'].mean()
 ax = by_score.plot(kind='bar', color='#4C72B0', title='Default rate by credit-score band')
 ax.set_ylabel('default rate'); plt.tight_layout()
-plt.savefig('output/readme_assets/default_by_credit_score.png', dpi=110); plt.close()"""),
+plt.savefig('outputs/charts/default_by_credit_score.png', dpi=110); plt.close()"""),
     code("""# Default rate by loan-to-value band.
 by_ltv = base.groupby('ltv_band', observed=True)['ever_default'].mean()
 ax = by_ltv.plot(kind='bar', color='#C44E52', title='Default rate by loan-to-value band')
 ax.set_ylabel('default rate'); plt.tight_layout()
-plt.savefig('output/readme_assets/default_by_ltv.png', dpi=110); plt.close()"""),
+plt.savefig('outputs/charts/default_by_ltv.png', dpi=110); plt.close()"""),
     code("""# One-page risk-by-driver summary table (the saved result for this notebook).
 rows = []
 for band, v in base.groupby('credit_score_band', observed=True)['ever_default'].mean().items():
@@ -339,7 +339,7 @@ for band, v in base.groupby('ltv_band', observed=True)['ever_default'].mean().it
 for band, v in base.groupby('vintage_year')['ever_default'].mean().items():
     rows.append({'driver': 'vintage', 'band': str(band), 'default_rate': round(v, 4)})
 risk_by_driver = pd.DataFrame(rows)
-save_csv(risk_by_driver, 'output/02_risk_by_driver.csv')
+save_csv(risk_by_driver, 'outputs/tables/02_risk_by_driver.csv')
 risk_by_driver"""),
     md("""**Reading the table:** weaker credit scores and higher loan-to-value both
 line up with higher default rates, and every band is worse in the crisis years.
@@ -390,8 +390,8 @@ ax = cal.plot(x='predicted_pd', y='observed_default_rate', marker='o', legend=Fa
               title='PD calibration (predicted vs observed)')
 ax.plot([0, cal['predicted_pd'].max()], [0, cal['predicted_pd'].max()], 'k--', lw=1)
 ax.set_xlabel('predicted PD'); ax.set_ylabel('observed default rate'); plt.tight_layout()
-os.makedirs('output/readme_assets', exist_ok=True)
-plt.savefig('output/readme_assets/pd_calibration.png', dpi=110); plt.close()"""),
+os.makedirs('outputs/charts', exist_ok=True)
+plt.savefig('outputs/charts/pd_calibration.png', dpi=110); plt.close()"""),
     code("""# Save the metrics + predicted-PD distribution as this notebook's result.
 metrics_tbl = pd.DataFrame([
     {'metric': 'AUC', 'value': round(auc, 4)},
@@ -402,11 +402,11 @@ metrics_tbl = pd.DataFrame([
     {'metric': 'pd_hat_p50', 'value': round(test['pd_hat'].median(), 4)},
     {'metric': 'pd_hat_p95', 'value': round(test['pd_hat'].quantile(0.95), 4)},
 ])
-save_csv(metrics_tbl, 'output/03_pd_metrics.csv')
+save_csv(metrics_tbl, 'outputs/tables/03_pd_metrics.csv')
 metrics_tbl"""),
     md("""**Reading the table:** AUC/Gini/KS measure how well the model ranks risky
 loans above safe ones; higher is better. The calibration plot (saved to
-`output/readme_assets/`) shows predicted and actual default rates lining up along
+`outputs/charts/`) shows predicted and actual default rates lining up along
 the diagonal -- the model is honest, not just discriminating."""),
 ])
 
@@ -452,7 +452,7 @@ features = ['credit_score', 'original_ltv', 'original_cltv', 'original_dti',
             'original_loan_term', 'loan_purpose', 'occupancy_status']
 train, test = train_test_split(base, test_size=0.30, stratify=base['target'], random_state=42)
 binning, iv_summary, woe_tables = woe.fit_binning(train, features, train['target'], max_bins=5)
-save_csv(iv_summary, 'output/03b_information_value.csv')
+save_csv(iv_summary, 'outputs/tables/03b_information_value.csv')
 iv_summary"""),
     code("""# Replace raw predictors with their WOE values and fit a logistic regression.
 X_train = transform.transform_to_woe(train, binning)
@@ -475,7 +475,7 @@ base['score'] = scorecard.score_from_logit(clf.decision_function(X_all), factor,
 # (the points for a loan add up to its total score -- fully transparent).
 coefs = dict(zip(X_train.columns, clf.coef_[0]))
 points = scorecard.scorecard_points(binning, woe_tables, coefs, clf.intercept_[0], factor, offset)
-save_csv(points, 'output/03b_scorecard_points.csv')
+save_csv(points, 'outputs/tables/03b_scorecard_points.csv')
 points.head(15)"""),
     code("""# Sort every loan into 8 rating grades (A safest) and build the MASTER SCALE:
 # predicted PD vs observed default rate, with loan count and exposure share.
@@ -488,7 +488,7 @@ lr = scorecard.long_run_grade_pd(base, 'grade', 'target', 'vintage_year', exposu
 master = master.merge(lr, on='grade', how='left')
 master['long_run_pd'] = master['long_run_pd'].round(4)
 master['exposure_weighted_pd'] = master['exposure_weighted_pd'].round(4)  # sensitivity only
-save_csv(master, 'output/03b_master_scale.csv')
+save_csv(master, 'outputs/tables/03b_master_scale.csv')
 master[['grade', 'predicted_pd', 'long_run_pd', 'observed_default_rate',
         'exposure_weighted_pd', 'loans', 'exposure_share']]"""),
     md("""**Long-run grade PD (PD-3).** `predicted_pd` is the model's average per grade;
@@ -518,7 +518,7 @@ gt['flag'] = gt['binom_p_underest'].apply(
     lambda p: 'green' if p > 0.05 else ('amber' if p > 0.01 else 'red'))
 hl_stat, hl_p = metrics.hosmer_lemeshow(base['target'], base['pd_hat'], n_bins=10)
 print(f'Hosmer-Lemeshow (10 deciles): chi2={hl_stat:.2f}  p={hl_p:.3f}')
-save_csv(gt, 'output/03d_pd_calibration_test.csv')
+save_csv(gt, 'outputs/tables/03d_pd_calibration_test.csv')
 gt"""),
     md("""**Reading the calibration test (PD-4).** For each grade we test the assigned
 **long-run PD** against the defaults actually observed: `binom_p_underest` is the
@@ -546,7 +546,7 @@ gp['pd_after_moc'] = (gp['long_run_pd'] + gp['moc_points']).round(4)
 gp['pd_revised'] = np.maximum(gp['pd_after_moc'], gp['observed_rate']).round(4)  # ratchet
 gp['long_run_pd_final'] = d.apply_pd_floor(gp['pd_revised'].values, floor=0.0005).round(4)
 save_csv(gp[['grade', 'long_run_pd', 'moc_points', 'pd_after_moc', 'observed_rate',
-             'flag', 'pd_revised', 'long_run_pd_final']], 'output/03e_grade_pd_moc_floor.csv')
+             'flag', 'pd_revised', 'long_run_pd_final']], 'outputs/tables/03e_grade_pd_moc_floor.csv')
 gp[['grade', 'long_run_pd', 'moc_points', 'pd_after_moc', 'observed_rate', 'flag', 'long_run_pd_final']]"""),
     md("""**Risk-sensitive MoC + ratchet + floor (PDR2-3, PDR2-2, PD-6).** The final
 regulatory grade PD is built transparently in three steps:
@@ -573,13 +573,13 @@ post['binom_p_underest'] = [round(metrics.binomial_pd_test(p, dft, n), 4)
                             for p, dft, n in zip(post['long_run_pd_final'], post['observed_defaults'], post['n'])]
 post['flag'] = post['binom_p_underest'].apply(
     lambda p: 'green' if p > 0.05 else ('amber' if p > 0.01 else 'red'))
-save_csv(post, 'output/03d_pd_calibration_test_post_revision.csv')
+save_csv(post, 'outputs/tables/03d_pd_calibration_test_post_revision.csv')
 loan_final_pd = base[['grade']].merge(gp[['grade', 'long_run_pd_final']], on='grade', how='left')['long_run_pd_final']
 hl_stat2, hl_p2 = metrics.hosmer_lemeshow(base['target'].values, loan_final_pd.values, n_bins=8)
 hl = pd.DataFrame([{'test': 'hosmer_lemeshow_across_grades', 'chi2': round(hl_stat2, 2),
                     'p_value': round(hl_p2, 4), 'n_grades': int(post.shape[0]),
                     'caveat': 'assumes independent defaults; understates Type-I error under correlation (WP14)'}])
-save_csv(hl, 'output/03d_hl_summary.csv')
+save_csv(hl, 'outputs/tables/03d_hl_summary.csv')
 print('post-revision flags:', dict(post['flag'].value_counts()))
 print('Hosmer-Lemeshow across grades: chi2={:.2f}  p={:.3f}'.format(hl_stat2, hl_p2))
 post"""),
@@ -598,7 +598,7 @@ deliberate buffer for that correlated-tail uncertainty."""),
 loan_grade_pd = base[['loan_sequence_number', 'grade']].merge(
     gp[['grade', 'long_run_pd', 'long_run_pd_final']], on='grade', how='left').rename(
     columns={'long_run_pd': 'grade_pd_longrun', 'long_run_pd_final': 'grade_pd_final'})
-save_csv(loan_grade_pd, 'output/03f_loan_grade_pd.csv')
+save_csv(loan_grade_pd, 'outputs/tables/03f_loan_grade_pd.csv')
 print('exported per-loan calibrated regulatory PD for', len(loan_grade_pd), 'loans')
 loan_grade_pd.head()"""),
     code("""# PDR2-6: 90-DPD sensitivity. Re-measure the one-year default rate and each grade's
@@ -614,7 +614,7 @@ by_grade = base.groupby('grade', observed=True).agg(
     rate_180dpd=('target', 'mean'),
     rate_90dpd=('default_within_12m_90dpd', 'mean')).reset_index().round(4)
 by_grade['uplift_x'] = (by_grade['rate_90dpd'] / by_grade['rate_180dpd'].replace(0, np.nan)).round(2)
-save_csv(by_grade, 'output/03g_dpd_sensitivity.csv')
+save_csv(by_grade, 'outputs/tables/03g_dpd_sensitivity.csv')
 print(dpd.to_string(index=False))
 by_grade"""),
     md("""**90-DPD sensitivity (PDR2-6).** The model defines default at **180-DPD** (a common
@@ -634,7 +634,7 @@ grade_pd = base.groupby('grade', observed=True)['pd_hat'].mean().reset_index().r
 grade_pd['stressed_pd'] = np.minimum(grade_pd['base_pd'] * pd_mult, 1.0).round(4)
 grade_pd['base_pd'] = grade_pd['base_pd'].round(4)
 grade_pd['pd_multiplier'] = round(pd_mult, 2)
-save_csv(grade_pd, 'output/03b_downturn_by_grade.csv')
+save_csv(grade_pd, 'outputs/tables/03b_downturn_by_grade.csv')
 grade_pd"""),
     md("""**Reading the master scale:** `predicted_pd` is what the scorecard expects;
 `observed_default_rate` is what actually happened. They track closely down the
@@ -717,7 +717,7 @@ for tr_y, te_y, label in splits:
 comparison = pd.DataFrame(rows)[[
     'split', 'train_auc', 'test_auc', 'train_avg_predicted_pd',
     'test_avg_predicted_pd', 'test_observed_default_rate', 'psi_train_vs_test']]
-save_csv(comparison, 'output/03c_oot_validation.csv')
+save_csv(comparison, 'outputs/tables/03c_oot_validation.csv')
 comparison"""),
     code("""# Full discrimination detail (AUC / Gini / KS, train vs test) for the record.
 for d in details:
@@ -796,7 +796,7 @@ overall = pd.DataFrame([{
     'lgd_apra': round(disposed['lgd_apra'].mean(), 4),
 }])
 lgd_summary = pd.concat([tbl, overall], ignore_index=True)
-save_csv(lgd_summary, 'output/04_lgd_model.csv')
+save_csv(lgd_summary, 'outputs/tables/04_lgd_model.csv')
 lgd_summary"""),
     md("""**Reading the table:** `observed_lgd` is what actually happened (nominal
 IFRS 9); `modelled_lgd` is the two-stage model's fit. The downturn row sits roughly
@@ -878,7 +878,7 @@ sens = pd.DataFrame([
 ])
 sens['open_workout_share_of_defaults'] = round(frac_open, 4)
 sens['max_workout_months'] = MAX_WORKOUT_MONTHS
-save_csv(sens, 'output/04_incomplete_workouts.csv')
+save_csv(sens, 'outputs/tables/04_incomplete_workouts.csv')
 sens"""),
     md("""**Reading the sensitivity (P2-1).** The first row is today's disposed-only
 LGD. The second folds the open workouts back in at a **cure-aware best estimate**
@@ -902,7 +902,7 @@ moc = disposed.groupby('regime').agg(lgd_apra=('lgd_apra', 'mean')).reset_index(
 moc['lgd_apra_with_moc'] = d.add_moc(moc['lgd_apra'].values, MOC_PP).round(4)
 moc['lgd_apra'] = moc['lgd_apra'].round(4)
 moc['moc_points'] = MOC_PP
-save_csv(moc, 'output/04_moc_overlay.csv')
+save_csv(moc, 'outputs/tables/04_moc_overlay.csv')
 moc"""),
     md("""**Reading the MoC table (P2-2).** `lgd_apra_with_moc` is simply the APRA-view
 LGD plus a documented **+5 LGD-point** margin. It is deliberately small and explicit,
@@ -1014,7 +1014,7 @@ val = pd.concat([
     pd.DataFrame([{'section': 'discrimination', 'detail': 'spearman / R2 on loss-only',
                    'observed_lgd': round(spearman, 4), 'predicted_lgd': round(r2, 4)}]),
 ], ignore_index=True)
-save_csv(val, 'output/04b_lgd_validation.csv')
+save_csv(val, 'outputs/tables/04b_lgd_validation.csv')
 val"""),
     md("""## Interpretation (plain English)
 
@@ -1079,7 +1079,7 @@ ead_summary = defaulted.groupby('vintage_year').agg(
     p95_ead=('ead', lambda s: s.quantile(0.95)),
     total_ead=('ead', 'sum'),
 ).reset_index().round(2)
-save_csv(ead_summary, 'output/05_ead_summary.csv')
+save_csv(ead_summary, 'outputs/tables/05_ead_summary.csv')
 ead_summary"""),
     md("""**Why there is no CCF here:** A credit conversion factor models how much of
 an *undrawn* limit a borrower draws before defaulting. A term mortgage has no
@@ -1122,7 +1122,7 @@ pd_model, pd_cols = models.fit_pd(base)
 base['pd_hat'] = d.apply_pd_floor(models.predict_pd(pd_model, pd_cols, base), floor=0.0005)
 # PDR2-1: the PD that feeds EL must be the SAME PD as capital (EL framework Part 5.1) --
 # the CALIBRATED grade PD (long-run + risk-sensitive MoC + ratchet + floor) from 03b.
-grade_pd_map = pd.read_csv('output/03f_loan_grade_pd.csv')[
+grade_pd_map = pd.read_csv('outputs/tables/03f_loan_grade_pd.csv')[
     ['loan_sequence_number', 'grade_pd_longrun', 'grade_pd_final']]
 base['loan_sequence_number'] = base['loan_sequence_number'].astype(str)
 grade_pd_map['loan_sequence_number'] = grade_pd_map['loan_sequence_number'].astype(str)
@@ -1162,7 +1162,7 @@ pd_compare = pd.DataFrame([
      'mean_pd': round(float(base['pd_capital'].mean()), 5), 'portfolio_EL': round(el_cap, 0)},
 ])
 pd_compare['EL_vs_longrun_x'] = (pd_compare['portfolio_EL'] / el_lr).round(3)
-save_csv(pd_compare, 'output/06_pd_basis_el_compare.csv')
+save_csv(pd_compare, 'outputs/tables/06_pd_basis_el_compare.csv')
 print('MoC flows through (EL capital >= EL long-run, like-for-like):', el_cap >= el_lr)
 pd_compare"""),
     md("""**Reading the PD-basis comparison (PDR2-1).** On the **like-for-like pooled basis**
@@ -1200,7 +1200,7 @@ el_summary = base.groupby('ifrs9_stage').agg(
     expected_loss_12m=('expected_loss', 'sum'),
     reported_expected_loss=('el_reported', 'sum'),
 ).reset_index().round(2)
-save_csv(el_summary, 'output/06_expected_loss.csv')
+save_csv(el_summary, 'outputs/tables/06_expected_loss.csv')
 el_summary"""),
     md("""**Lifetime PD note (PDR2-7).** `expected_loss_12m` is a genuine **12-month** EL,
 the correct IFRS 9 **Stage 1** input. The `reported_expected_loss` column then needs
@@ -1231,7 +1231,7 @@ el_variant = pd.DataFrame([
 ])
 el_variant['uplift_x'] = (el_variant['total_expected_loss'] /
                           el_variant['total_expected_loss'].iloc[0]).round(2)
-save_csv(el_variant, 'output/06_el_downturn_variant.csv')
+save_csv(el_variant, 'outputs/tables/06_el_downturn_variant.csv')
 el_variant"""),
     md("""### Best estimate of EL for already-defaulted (Stage 3) loans (P2-4)
 
@@ -1251,7 +1251,7 @@ s3 = pd.DataFrame([{
     'el_best_estimate': round(float(np.nansum(base['el_stage3_bestestimate'])), 0),
 }])
 s3['ratio_best_vs_mechanical'] = round(s3['el_best_estimate'] / s3['el_mechanical_pd_x_lgd'], 2)
-save_csv(s3, 'output/06_stage3_best_estimate.csv')
+save_csv(s3, 'outputs/tables/06_stage3_best_estimate.csv')
 s3"""),
     md("""**Reading the Stage 3 table (P2-4).** The mechanical column applies the model
 PD x LGD even to loans that have *already* defaulted (so its PD < 1 understates the
@@ -1302,7 +1302,7 @@ import numpy as np
 from src.output import save_csv
 base = pd.read_parquet('data/processed/analysis_base.parquet').copy()
 base['loan_sequence_number'] = base['loan_sequence_number'].astype(str)
-cap = pd.read_csv('output/03f_loan_grade_pd.csv')[['loan_sequence_number', 'grade_pd_final']]
+cap = pd.read_csv('outputs/tables/03f_loan_grade_pd.csv')[['loan_sequence_number', 'grade_pd_final']]
 cap['loan_sequence_number'] = cap['loan_sequence_number'].astype(str)
 base = base.merge(cap, on='loan_sequence_number', how='left')
 calm = base[base['vintage_year'] == 2015]
@@ -1347,7 +1347,7 @@ for name, pm, lm in [('baseline', 1.0, 1.0),
                  'stressed_lgd': round(min(base_lgd * lm, 1.0), 4),
                  'expected_loss': round(el, 0), 'EL_uplift_x': round(el / baseline_el, 2)})
 stress_tbl = pd.DataFrame(rows)
-save_csv(stress_tbl, 'output/07_stress_test.csv')
+save_csv(stress_tbl, 'outputs/tables/07_stress_test.csv')
 stress_tbl"""),
     code("""# Reverse stress (APS 220): what COMBINED PD x LGD multiplier drives EL to a chosen
 # severity multiple? Since EL scales with the product of the two shocks, it is that
@@ -1457,7 +1457,7 @@ psi_tbl = pd.DataFrame([
 ])
 psi_tbl['interpretation'] = psi_tbl['psi_2015_vs_crisis'].apply(
     lambda v: 'stable (<0.10)' if v < 0.10 else ('watch (0.10-0.25)' if v < 0.25 else 'material shift (>0.25)'))
-save_csv(psi_tbl, 'output/08_monitoring_psi.csv')
+save_csv(psi_tbl, 'outputs/tables/08_monitoring_psi.csv')
 psi_tbl"""),
     md("""**Reading the table:** PSI above 0.25 signals the incoming population has
 shifted materially from the reference book -- here, the crisis vintages look

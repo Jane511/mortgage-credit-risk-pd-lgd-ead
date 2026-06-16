@@ -60,36 +60,36 @@ population and lifetime EL); "one-year default" is the fixed-12-month PD target 
 
 ## Key charts
 
-*All charts are regenerated from the committed pipeline outputs in [output/](output/)
-by [reports/make_figures.py](reports/make_figures.py) — aggregated results only, no
+*All charts are regenerated from the committed pipeline outputs in [outputs/tables/](outputs/tables/)
+by [tools/make_figures.py](tools/make_figures.py) — aggregated results only, no
 raw loan records.*
 
 ### 1. Expected loss: baseline vs stressed (the headline)
-![Expected loss rises about ten times under a downturn scenario](reports/figures/expected_loss_base_vs_stress.png)
+![Expected loss rises about ten times under a downturn scenario](outputs/charts/expected_loss_base_vs_stress.png)
 
 **What this shows:** the whole portfolio's expected loss in a calm market (~$67m) versus a crisis-like downturn (~$668m).
 **Why it matters:** it is the stress story in one picture — losses jump ~10× because the chance of default and the loss per default get worse *together*.
 
 ### 2. Default rate by origination year
-![Default rate by vintage: 13.7% in 2007 and 7.4% in 2008 versus 2.4% in 2015](reports/figures/default_rate_by_vintage.png)
+![Default rate by vintage: 13.7% in 2007 and 7.4% in 2008 versus 2.4% in 2015](outputs/charts/default_rate_by_vintage.png)
 
 **What this shows:** how often loans defaulted, split by the year they were written.
 **Why it matters:** the 2007/08 crisis cohorts default far more often than the calm 2015 book — a real observed downturn, not an assumption.
 
 ### 3. Loss given default: calm vs downturn
-![LGD more than doubles in a downturn, from 25% to 57%](reports/figures/lgd_calm_vs_downturn.png)
+![LGD more than doubles in a downturn, from 25% to 57%](outputs/charts/lgd_calm_vs_downturn.png)
 
 **What this shows:** the share of the loan actually lost after a default, measured from Freddie Mac's real loss records, and the model's match to it.
 **Why it matters:** loss *severity* more than doubles in a downturn — and the modelled line tracks the observed one, so the LGD is grounded in reality.
 
 ### 4. PD calibration by rating grade
-![Predicted versus observed default rate across rating grades A to H, closely aligned](reports/figures/pd_calibration_by_grade.png)
+![Predicted versus observed default rate across rating grades A to H, closely aligned](outputs/charts/pd_calibration_by_grade.png)
 
 **What this shows:** for each risk grade (A safest → H riskiest), the predicted default probability against what actually happened.
 **Why it matters:** the two lines sit almost on top of each other and rise in order — the scorecard both *ranks* and *sizes* risk correctly.
 
 ### 5. Default rate by credit score
-![Default rate falls from 29% below 620 to 2% above 780 as credit score rises](reports/figures/default_rate_by_credit_score.png)
+![Default rate falls from 29% below 620 to 2% above 780 as credit score rises](outputs/charts/default_rate_by_credit_score.png)
 
 **What this shows:** default rate across credit-score bands.
 **Why it matters:** risk falls steeply and smoothly as scores rise (29% → 2%) — textbook behaviour that confirms the data and definitions are right.
@@ -102,22 +102,22 @@ raw loan records.*
 
 Each step is one notebook, written so a non-technical reader can follow the top
 and a technical reviewer can check the code. Every notebook saves one clean
-results table to [output/](output/).
+results table to [outputs/tables/](outputs/tables/).
 
 | # | Step | What I did | Result it produced |
 |---|------|-----------|--------------------|
-| **00** | [Load & assemble](notebooks/00_load_and_assemble.ipynb) | Took the raw Freddie Mac files (no column headers, ~8.8 million monthly rows), applied the official 32-column layout, verified the counts, joined each loan's facts to its monthly history, and collapsed it to one row per loan across all three years. | [Data-quality summary](output/00_data_quality.csv) |
-| **01** | [Base table](notebooks/01_base_table.ipynb) | Defined and flagged **default**, computed **EAD**, and computed **realised LGD from the real loss fields**; reconciled it to the dataset's own loss figure. | [Default & LGD by vintage](output/01_default_lgd_by_vintage.csv) |
-| **02** | [EDA](notebooks/02_eda.ipynb) | Showed how risk moves with the two classic drivers — credit score and loan-to-value — with saved charts. | [Risk by driver](output/02_risk_by_driver.csv) + charts |
-| **03** | [PD model](notebooks/03_pd_model.ipynb) | Built an interpretable **logistic-regression** default model on the **one-year** PD target and graded it (AUC/Gini/KS + a calibration check). | [PD metrics](output/03_pd_metrics.csv) |
-| **03b** | [PD scorecard](notebooks/03b_PD_Scorecard.ipynb) | Turned the one-year PD into a **points-based scorecard** (WOE/IV + logistic), sorted loans into **8 rating grades A–H**, built the **master scale**, calibrated each grade to a **count-weighted long-run PD**, ran a **formal calibration test** (binomial traffic-light + Hosmer-Lemeshow), and applied a **PD margin of conservatism** and the **5 bps floor**. | [Master scale](output/03b_master_scale.csv), [calibration test](output/03d_pd_calibration_test.csv), [MoC + floor](output/03e_grade_pd_moc_floor.csv) |
-| **03c** | [PD out-of-time validation](notebooks/03c_PD_OutOfTime_Validation.ipynb) | **Out-of-time / out-of-regime** test on the one-year target: refit PD on earlier vintages only and scored a held-out later one (no leakage). Shows rank-ordering **travels** across periods while the risk **level/stability shifts** (PSI). | [OOT validation](output/03c_oot_validation.csv) |
-| **04** | [LGD model](notebooks/04_lgd_model.ipynb) | Built a **two-stage LGD model** (chance of a loss × size of the loss) on disposed defaults and produced a real **downturn LGD**; added the **economic (discounted)** loss and a separate **APRA capital view** (MI excluded, 20% reduction, 20% floor), a **margin of conservatism**, a **cyclicality test**, and an **incomplete-workout sensitivity**. | [LGD model summary](output/04_lgd_model.csv) |
-| **04b** | [LGD validation](notebooks/04b_LGD_Validation.ipynb) | Independent LGD validation mirroring the PD one: **out-of-time / out-of-regime**, a **cohort backtest**, **discrimination**, **stability**, and an external **benchmarking** note (APS 113 Validation; APG 113 para 140; WP14). | [LGD validation](output/04b_lgd_validation.csv) |
-| **05** | [EAD](notebooks/05_ead.ipynb) | Summarised exposure at default and explained, in one paragraph, why a term mortgage needs **no CCF** (unlike a credit card). | [EAD summary](output/05_ead_summary.csv) |
-| **06** | [Expected Loss](notebooks/06_expected_loss.ipynb) | Combined the three models into **EL = PD × LGD × EAD**, added **IFRS 9 / AASB 9 staging**, and walked through the full math for one example loan. | [Expected-loss summary](output/06_expected_loss.csv) |
-| **07** | [Stress testing](notebooks/07_stress_testing.ipynb) | Used the *observed* 2007/2008 crisis to calibrate a **downturn scenario** and measured the uplift in PD, LGD and total loss; sketched a climate-risk extension. | [Baseline-vs-stressed](output/07_stress_test.csv) |
-| **08** | [Documentation & monitoring](notebooks/08_documentation_and_monitoring.ipynb) | Wrote the model-development pack (objective, data, method, results, limitations, governance) and a **PSI stability** check. | [Monitoring (PSI)](output/08_monitoring_psi.csv) |
+| **00** | [Load & assemble](notebooks/00_load_and_assemble.ipynb) | Took the raw Freddie Mac files (no column headers, ~8.8 million monthly rows), applied the official 32-column layout, verified the counts, joined each loan's facts to its monthly history, and collapsed it to one row per loan across all three years. | [Data-quality summary](outputs/tables/00_data_quality.csv) |
+| **01** | [Base table](notebooks/01_base_table.ipynb) | Defined and flagged **default**, computed **EAD**, and computed **realised LGD from the real loss fields**; reconciled it to the dataset's own loss figure. | [Default & LGD by vintage](outputs/tables/01_default_lgd_by_vintage.csv) |
+| **02** | [EDA](notebooks/02_eda.ipynb) | Showed how risk moves with the two classic drivers — credit score and loan-to-value — with saved charts. | [Risk by driver](outputs/tables/02_risk_by_driver.csv) + charts |
+| **03** | [PD model](notebooks/03_pd_model.ipynb) | Built an interpretable **logistic-regression** default model on the **one-year** PD target and graded it (AUC/Gini/KS + a calibration check). | [PD metrics](outputs/tables/03_pd_metrics.csv) |
+| **03b** | [PD scorecard](notebooks/03b_PD_Scorecard.ipynb) | Turned the one-year PD into a **points-based scorecard** (WOE/IV + logistic), sorted loans into **8 rating grades A–H**, built the **master scale**, calibrated each grade to a **count-weighted long-run PD**, ran a **formal calibration test** (binomial traffic-light + Hosmer-Lemeshow), and applied a **PD margin of conservatism** and the **5 bps floor**. | [Master scale](outputs/tables/03b_master_scale.csv), [calibration test](outputs/tables/03d_pd_calibration_test.csv), [MoC + floor](outputs/tables/03e_grade_pd_moc_floor.csv) |
+| **03c** | [PD out-of-time validation](notebooks/03c_PD_OutOfTime_Validation.ipynb) | **Out-of-time / out-of-regime** test on the one-year target: refit PD on earlier vintages only and scored a held-out later one (no leakage). Shows rank-ordering **travels** across periods while the risk **level/stability shifts** (PSI). | [OOT validation](outputs/tables/03c_oot_validation.csv) |
+| **04** | [LGD model](notebooks/04_lgd_model.ipynb) | Built a **two-stage LGD model** (chance of a loss × size of the loss) on disposed defaults and produced a real **downturn LGD**; added the **economic (discounted)** loss and a separate **APRA capital view** (MI excluded, 20% reduction, 20% floor), a **margin of conservatism**, a **cyclicality test**, and an **incomplete-workout sensitivity**. | [LGD model summary](outputs/tables/04_lgd_model.csv) |
+| **04b** | [LGD validation](notebooks/04b_LGD_Validation.ipynb) | Independent LGD validation mirroring the PD one: **out-of-time / out-of-regime**, a **cohort backtest**, **discrimination**, **stability**, and an external **benchmarking** note (APS 113 Validation; APG 113 para 140; WP14). | [LGD validation](outputs/tables/04b_lgd_validation.csv) |
+| **05** | [EAD](notebooks/05_ead.ipynb) | Summarised exposure at default and explained, in one paragraph, why a term mortgage needs **no CCF** (unlike a credit card). | [EAD summary](outputs/tables/05_ead_summary.csv) |
+| **06** | [Expected Loss](notebooks/06_expected_loss.ipynb) | Combined the three models into **EL = PD × LGD × EAD**, added **IFRS 9 / AASB 9 staging**, and walked through the full math for one example loan. | [Expected-loss summary](outputs/tables/06_expected_loss.csv) |
+| **07** | [Stress testing](notebooks/07_stress_testing.ipynb) | Used the *observed* 2007/2008 crisis to calibrate a **downturn scenario** and measured the uplift in PD, LGD and total loss; sketched a climate-risk extension. | [Baseline-vs-stressed](outputs/tables/07_stress_test.csv) |
+| **08** | [Documentation & monitoring](notebooks/08_documentation_and_monitoring.ipynb) | Wrote the model-development pack (objective, data, method, results, limitations, governance) and a **PSI stability** check. | [Monitoring (PSI)](outputs/tables/08_monitoring_psi.csv) |
 
 **Risk rises exactly as expected** — for example, default rate by credit score
 falls from **29% (sub-620)** to **2% (780+)**, and rises with loan-to-value from
@@ -203,7 +203,7 @@ corrupt the numbers.
 ├── raw data/             # SFLLD files (2007/2008/2015) — GITIGNORED, never committed
 ├── data/processed/       # cached loan-level tables — GITIGNORED, regenerated by nb 00-01
 ├── notebooks/            # ordered build 00–08 (+ 03b scorecard, 03c PD validation, 04b LGD validation)
-├── output/               # CSV result snapshots + charts (committed)
+├── outputs/tables/               # CSV result snapshots + charts (committed)
 ├── src/                  # helpers: layout, loaders, definitions, models, metrics,
 │                         #          woe, transform, scorecard (WOE/IV points scorecard)
 ├── build_notebooks.py    # regenerates the notebooks
@@ -219,7 +219,7 @@ pip install -r requirements.txt
 # Place the SFLLD samples under "raw data/sample_2007/", ".../sample_2008/",
 # ".../sample_2015/" (each with sample_orig_YYYY.txt and sample_svcg_YYYY.txt).
 python build_notebooks.py     # (re)generate the notebooks
-python run_notebooks.py all   # execute 00–08; writes tables to output/
+python run_notebooks.py all   # execute 00–08; writes tables to outputs/tables/
 ```
 Notebook 00 does the heavy assembly once (~2 min) and caches a loan-level table;
 the rest run in seconds.
