@@ -1,0 +1,5 @@
+metric,value
+in-sample R2 (logit dr),0.8138
+out-of-time corr (>=2018),0.4592
+out-of-time RMSE (logit),0.8342
+all coefficient signs economic?,True

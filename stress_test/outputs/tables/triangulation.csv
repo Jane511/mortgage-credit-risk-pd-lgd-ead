@@ -1,0 +1,4 @@
+method,severe_PD_mult_x,note
+satellite severe (this module),24.69,"logit-linear macro model, inputs clipped to support"
+observed worst quarter (data),7.8,peak quarterly default rate / baseline -- the realised ceiling
+parent multiplier approach (nb07),5.7,observed GFC-vs-calm one-year PD ratio

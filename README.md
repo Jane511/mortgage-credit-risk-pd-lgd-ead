@@ -183,6 +183,20 @@ The **forward holdout** is the honest production test — the model is fitted on
 scored on genuinely later loans (including COVID) it has never seen, and it still
 rank-orders them.
 
+### Stressed PD (the PD half of the stress test)
+
+The calibrated PD is stressed two ways:
+
+| Method | Severe scenario | Mild / COVID |
+|---|---|---|
+| **Observed multipliers** (notebook 07) | PD **×5.7** (portfolio 0.40% → **2.2%**) | mild ×2.6 · COVID ×4.3 |
+| **Macro-credit satellite model** ([stress_test/](stress_test/)) | PD **×24.7** (simultaneous-shock upper bound, triangulated to the observed ceiling ×7.8) | mild ×5.4 |
+
+The satellite model estimates `logit(default rate) ~ unemployment + house prices + GDP` from
+79 quarters of data and is driven by the recession scenario — **unemployment is the dominant
+driver**. It deliberately runs hotter than the observed ceiling in the joint tail (see the
+[stress_test README](stress_test/README.md) for the triangulation and model-risk controls).
+
 ---
 
 ## 3. LGD model — methodology and results
@@ -246,6 +260,22 @@ the model tracks realised severity across LTV with no systematic bias (gaps −0
 | **Discrimination** | Spearman 0.33 (LGD is inherently noisy → modest R²) | same |
 | **Stability** | dropping any single vintage moves mean LGD only modestly | same |
 | **Benchmarking** | downturn ~56% sits within published US GFC severities (~40–60%); calm ~34% and APRA 20% floor bracket it | [04b_lgd_benchmarking.csv](outputs/tables/04b_lgd_benchmarking.csv) |
+
+### Stressed LGD (the LGD half of the stress test)
+
+Severity is **collateral-driven**, so it is stressed through the house-price shock, anchored to
+the **measured** regimes above:
+
+| Scenario | Stressed LGD | Multiplier | Driver |
+|---|---:|---:|---|
+| **baseline** (calm) | ~34% | ×1.0 | calm/other regime |
+| **severe** (house prices −25%) | ~56% | **×2.3** | GFC downturn LGD (measured) |
+| **COVID-2020** | ~27% | **×1.1** | high default but **mild** severity (house prices *rose*) |
+
+This is the key asymmetry the project surfaces: a downturn raises **both** PD and LGD (they
+stack with no diversification offset, APG 113 para 92), **except** COVID, where LGD barely
+moved. In the [satellite stress test](stress_test/), stressed LGD is scaled continuously by the
+scenario's property-price fall between these calm and downturn anchors.
 
 ---
 
@@ -328,6 +358,13 @@ Stages 2 and 3.
 **severe GFC** scenario lifts EL **~13×** (PD ×5.7, LGD ×2.3 stacking with no diversification
 offset), while the **observed COVID-2020** scenario lifts it **~4.7×** (PD ×4.3 but LGD ×1.1)
 — two empirically-grounded downturns of very different shape.
+
+> **Statistical stress test (satellite model).** Notebook 07 uses the *observed-multiplier*
+> method. A separate **[stress_test/](stress_test/)** module implements the bank-grade
+> *statistical* approach — a **macro-credit satellite model** that estimates `logit(default
+> rate) ~ unemployment + house prices + GDP` from 79 quarters of data (GFC + COVID), then
+> drives it with recession scenarios. See [stress_test/README.md](stress_test/README.md) for
+> the methodology, validation, and a model-risk triangulation of the tail.
 
 ---
 
