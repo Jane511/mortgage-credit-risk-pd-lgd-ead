@@ -54,12 +54,72 @@ credit cycle to fit against.
 
 ---
 
-## 2. Macro data
+## 2. Macro data — where it comes from and how it enters the model
 
-`macro/macro_annual.csv` holds annual US series (unemployment, house-price YoY, real GDP
-growth, 30-yr mortgage rate), interpolated to quarterly. The committed values are
-**approximate public figures** so the pipeline runs offline; `fetch_macro_fred.py` refreshes
-them from FRED (UNRATE, CSUSHPINSA, A191RL1Q225SBEA, MORTGAGE30US) for a production run.
+This is the part that is easy to gloss over, so it is spelled out here.
+
+### Where the macro drivers come from
+
+**They do *not* come from the Freddie Mac data.** The loan data supplies the *dependent*
+variable (the default rate, §1); the macro drivers are an **external overlay** of public US
+macroeconomic series, held in [`macro/macro_annual.csv`](macro/macro_annual.csv):
+
+| Driver | What it is | Real-world source (FRED series) |
+|---|---|---|
+| `unemployment` | US civilian unemployment rate (%) | `UNRATE` |
+| `hpi_yoy` | house-price index, year-on-year % change | `CSUSHPINSA` (Case-Shiller) |
+| `gdp_growth` | real GDP growth (%) | `A191RL1Q225SBEA` |
+| `mortgage_rate` | 30-yr fixed mortgage rate (%) | `MORTGAGE30US` |
+
+> **Honest caveat:** the committed values are **approximate historical public figures**, entered
+> by hand so the pipeline runs offline — they are *not* pulled live in this run.
+> [`fetch_macro_fred.py`](fetch_macro_fred.py) refreshes them from FRED for a production run. So
+> the macro is **public economic data, external to the loan book**, not derived from the loans.
+
+### How those drivers get into the model
+
+The mechanism is a **calendar-time join**: each quarter's default rate (from the loan data) is
+paired with that *same quarter's* macro (from the CSV), and the regression reads the relationship
+off that aligned panel.
+
+```text
+ macro_annual.csv (annual)                     loan_level.parquet (Freddie Mac)
+         │                                               │
+         │  load_quarterly_macro():                      │  build_default_panel():
+         │  place each annual value at mid-year,         │  for each quarter Q compute the
+         │  then LINEARLY INTERPOLATE to quarterly       │  default rate + avg seasoning
+         │                                               │
+         └───────────────┐                ┌──────────────┘
+                         ▼                ▼
+              panel.merge(macro, on="qord")   ← joined by CALENDAR QUARTER (the qord key),
+                         │                       so 2009Q1 default rate sits next to 2009Q1 macro
+                         ▼
+              fit_satellite():  standardise each driver  z = (x − mean) / sd,
+                                then  logit(default_rate) ~ β·[unemployment, ΔHPI, GDP, age]
+                         ▼
+              coefficients per 1 SD:  unemployment +0.97, ΔHPI −0.18, GDP −0.12, age +0.50
+                                      (mortgage_rate dropped — wrong economic sign)
+```
+
+Step by step:
+
+1. **Source** — `load_quarterly_macro()` reads the annual CSV and **interpolates to quarterly**
+   (2009's 9.3% unemployment becomes a smooth quarterly path).
+2. **Align** — `build_default_panel()` builds the quarterly default rate from the loans, keyed by
+   a quarter ordinal `qord` (= year×4 + quarter).
+3. **Join** — `main()` runs `panel.merge(macro, on="qord")`, so each quarter's default rate sits
+   beside that quarter's macro — **contemporaneous** matching by calendar time.
+4. **Estimate** — `fit_satellite()` standardises the drivers and regresses the log-odds of default
+   on them. *This is the step that "puts the drivers into the model"*: the coefficients are the
+   estimated sensitivity of default to each macro variable.
+5. **Apply** — for a scenario, its macro numbers are standardised with the **same** mean/sd and
+   fed back through `predict_logit()` → stressed default rate → the per-grade log-odds shift (§4).
+
+The relationship is estimable because the join lines up **bad macro with high observed default**
+(2009–2011 unemployment ~9–10% ↔ ~1.1%/qtr default) and **good macro with low default**
+(2016–2019 unemployment ~4% ↔ ~0.07%) — the regression reads that covariation off the
+calendar-aligned panel. (Because the join is by calendar time, the aggregate default rate also
+moves with **book seasoning**, which is why `avg_age` is included as a control — see §1.)
 
 ---
 
