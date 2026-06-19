@@ -1,0 +1,5 @@
+source,lgd_ref,note
+This model -- downturn (GFC) realised LGD,0.565,GFC 2006-09 disposed defaults
+This model -- calm/other realised LGD,0.342,non-GFC vintages
+APRA APS 113 retail-mortgage LGD floor,0.2,regulatory minimum where own-LGD not approved (Att B)
+Published US GFC residential severities (indicative),0.40-0.60,"distressed dispositions 2008-2011 -- reference range, not fitted"

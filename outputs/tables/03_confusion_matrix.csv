@@ -1,0 +1,8 @@
+metric,value
+threshold (PD cut-off),0.0039
+true_positives (caught defaults),743.0
+false_positives (false alarms),65459.0
+false_negatives (missed defaults),243.0
+true_negatives,188555.0
+precision,0.0112
+recall (sensitivity),0.7535

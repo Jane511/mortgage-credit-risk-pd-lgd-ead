@@ -173,11 +173,41 @@ def assemble_vintage(orig_path, svcg_path, vintage_year):
     return df
 
 
-def load_all_vintages(data_dir, vintages=(2007, 2008, 2015)):
-    """Stack the requested vintages into one loan-level table."""
+# The full downloaded panel: 2006-2022 (17 vintages). 2005 is not in the sample set.
+ALL_VINTAGES = tuple(range(2006, 2023))
+
+
+def _resolve_vintage_paths(data_dir, y):
+    """Find a vintage's (orig, svcg) files, supporting BOTH layouts the panel
+    mixes: the per-vintage subfolder (sample_{y}/sample_orig_{y}.txt, used by the
+    original 2007/2008/2015) and the flat layout (sample_orig_{y}.txt, used by the
+    2006/2009-2022 downloads). Subfolder is preferred when both exist."""
+    orig_candidates = [
+        os.path.join(data_dir, f"sample_{y}", f"sample_orig_{y}.txt"),
+        os.path.join(data_dir, f"sample_orig_{y}.txt"),
+    ]
+    svcg_candidates = [
+        os.path.join(data_dir, f"sample_{y}", f"sample_svcg_{y}.txt"),
+        os.path.join(data_dir, f"sample_svcg_{y}.txt"),
+    ]
+    orig = next((p for p in orig_candidates if os.path.exists(p)), None)
+    svcg = next((p for p in svcg_candidates if os.path.exists(p)), None)
+    if orig is None or svcg is None:
+        raise FileNotFoundError(
+            f"vintage {y}: could not locate origination/servicing files under "
+            f"'{data_dir}' (tried both sample_{y}/ subfolder and flat layouts)."
+        )
+    return orig, svcg
+
+
+def load_all_vintages(data_dir="data/raw data", vintages=ALL_VINTAGES):
+    """Stack the requested vintages into one loan-level table.
+
+    Defaults to the full 2006-2022 panel under 'data/raw data'. Each vintage's
+    files are resolved by `_resolve_vintage_paths`, so the mixed subfolder/flat
+    download layout is handled transparently."""
     frames = []
     for y in vintages:
-        orig = os.path.join(data_dir, f"sample_{y}", f"sample_orig_{y}.txt")
-        svcg = os.path.join(data_dir, f"sample_{y}", f"sample_svcg_{y}.txt")
+        orig, svcg = _resolve_vintage_paths(data_dir, y)
         frames.append(assemble_vintage(orig, svcg, y))
     return pd.concat(frames, ignore_index=True)

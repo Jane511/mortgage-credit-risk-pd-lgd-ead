@@ -2,3 +2,4 @@ split,train_auc,test_auc,train_avg_predicted_pd,test_avg_predicted_pd,test_obser
 "A) out-of-time, same regime: train 2007 -> test 2008",0.8254,0.7887,0.0126,0.0092,0.0094,0.3078
 B) out-of-regime: train crisis 2007+08 -> test calm 2015,0.8395,0.8236,0.011,0.0014,0.0014,2.0048
 C) reverse what-if (NOT a forward test): train calm 2015 -> test crisis,0.8533,0.8223,0.0014,0.0406,0.011,4.8471
+D) FORWARD holdout: train 2006-2019 -> test 2020-2022 (cold),0.8418,0.707,0.0039,0.0021,0.0036,0.1626

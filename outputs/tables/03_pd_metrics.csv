@@ -1,8 +1,8 @@
 metric,value
-AUC,0.8639
-Gini,0.7277
-KS,0.5747
-test_loans,45000.0
-pd_hat_mean,0.0077
-pd_hat_p50,0.0024
-pd_hat_p95,0.0325
+AUC,0.825
+Gini,0.6499
+KS,0.5004
+test_loans,255000.0
+pd_hat_mean,0.0039
+pd_hat_p50,0.0018
+pd_hat_p95,0.0136

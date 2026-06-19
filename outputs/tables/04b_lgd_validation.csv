@@ -1,8 +1,23 @@
 section,detail,n_test,observed_lgd,predicted_lgd,pred_minus_obs
 out_of_time,A) train crisis 2007+08 -> test calm 2015,136.0,0.2464,0.4326,0.1862
 out_of_time,B) reverse: train calm 2015 -> test crisis (under-predicts),6613.0,0.5673,0.2081,-0.3591
-stability,all vintages,,,0.5596,
-stability,drop 2007,,,0.5243,
-stability,drop 2008,,,0.5675,
-stability,drop 2015,,,0.5665,
-discrimination,spearman / R2 on loss-only,,0.2964,0.0687,
+out_of_time,C) FORWARD holdout: train pre-2020 -> test 2020-22 (thin),65.0,0.3212,0.3292,0.008
+stability,all vintages,,,0.5267,
+stability,drop 2006,,,0.5032,
+stability,drop 2007,,,0.5014,
+stability,drop 2008,,,0.5238,
+stability,drop 2009,,,0.5314,
+stability,drop 2010,,,0.5321,
+stability,drop 2011,,,0.5312,
+stability,drop 2012,,,0.5326,
+stability,drop 2013,,,0.5304,
+stability,drop 2014,,,0.5294,
+stability,drop 2015,,,0.5297,
+stability,drop 2016,,,0.5291,
+stability,drop 2017,,,0.5289,
+stability,drop 2018,,,0.5282,
+stability,drop 2019,,,0.528,
+stability,drop 2020,,,0.5274,
+stability,drop 2021,,,0.5273,
+stability,drop 2022,,,0.5276,
+discrimination,spearman / R2 on loss-only,,0.327,0.0855,

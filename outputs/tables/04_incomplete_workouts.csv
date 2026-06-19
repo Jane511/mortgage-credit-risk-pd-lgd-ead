@@ -1,4 +1,4 @@
 basis,mean_lgd,open_workout_share_of_defaults,max_workout_months
-"disposed only (current LGD, resolution-biased)",0.5608,0.4259,36
-incl. open workouts @ cure-aware best estimate,0.4438,0.4259,36
-incl. open workouts @ conservative upper bound,0.6682,0.4259,36
+"disposed only (current LGD, resolution-biased)",0.5281,0.5896,36
+incl. open workouts @ cure-aware best estimate,0.3176,0.5896,36
+incl. open workouts @ conservative upper bound,0.6498,0.5896,36

@@ -1,0 +1,11 @@
+stage,variable,coefficient
+1: P(loss) logistic,intercept,0.134946
+1: P(loss) logistic,original_ltv,0.008863
+1: P(loss) logistic,credit_score,0.000962
+1: P(loss) logistic,original_upb,-1e-06
+1: P(loss) logistic,downturn,1.614796
+2: severity linear,intercept,0.776672
+2: severity linear,original_ltv,-0.000447
+2: severity linear,credit_score,-0.00027
+2: severity linear,original_upb,-1e-06
+2: severity linear,downturn,0.180935

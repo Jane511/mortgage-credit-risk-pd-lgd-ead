@@ -201,8 +201,47 @@ def risk_sensitive_moc(pd_values, n, z=1.645):
 
 def add_moc(lgd, add_pp=0.05, cap=1.10):
     """Margin of conservatism overlay (CRE36.67 / Step 11). An ADDITIVE add-on, in
-    LGD points, to cover the thin data and short observation window (3 vintages) and
-    the incomplete-workout uncertainty. It is an OVERLAY applied only to the APRA
+    LGD points, to cover model/data uncertainty and the incomplete-workout bias on the
+    recent (still-resolving) vintages. It is an OVERLAY applied only to the APRA
     capital view -- never inside the model and never on the IFRS 9 figures. NaN-safe."""
     lgd = np.asarray(lgd, dtype=float)
     return np.where(np.isnan(lgd), lgd, np.minimum(lgd + add_pp, cap))
+
+
+# ---------------------------------------------------------------------------
+# Regime classification across the 2006-2022 panel (R3-C2)
+# ---------------------------------------------------------------------------
+# One documented place that says which vintages are "downturn", so the LGD
+# cyclicality test, the severe stress multiplier, PSI and the charts no longer
+# hardwire 2007/2008. Keyed to year (a documented macro fact, verified against the
+# per-vintage realised default/LGD in notebook 00/01), not fitted to the data.
+#
+# GFC housing crisis: cohorts originated into / defaulting through the 2007-2011
+# collapse, with BOTH high default rates AND high loss severity -> this is the
+# "downturn" for the cyclical LGD and the severe stress scenario.
+GFC_DOWNTURN_VINTAGES = (2006, 2007, 2008, 2009)
+# COVID-2020: high default RISK but LOW severity (house prices rose, CARES-Act
+# forbearance) -> a structurally different downturn, handled as its OWN stress
+# scenario (notebook 07) rather than folded into the severity downturn, so it does
+# not dilute the downturn LGD. 2020-21 default counts are also forbearance-affected.
+COVID_VINTAGES = (2020,)
+# Representative calm expansion book used as the baseline/reference in stress & PSI.
+CALM_REFERENCE_VINTAGE = 2015
+
+
+def is_downturn_vintage(vintage):
+    """True for the GFC housing-crisis cohorts (high default AND high severity) --
+    the regime whose loss experience the downturn LGD/stress must reflect. COVID is
+    treated separately (see COVID_VINTAGES). Accepts a scalar or a pandas Series."""
+    v = pd.to_numeric(vintage, errors="coerce")
+    if np.isscalar(v):
+        return bool(v in GFC_DOWNTURN_VINTAGES)
+    return v.isin(GFC_DOWNTURN_VINTAGES)
+
+
+def is_covid_vintage(vintage):
+    """True for the COVID-2020 cohort (separate, non-housing downturn scenario)."""
+    v = pd.to_numeric(vintage, errors="coerce")
+    if np.isscalar(v):
+        return bool(v in COVID_VINTAGES)
+    return v.isin(COVID_VINTAGES)

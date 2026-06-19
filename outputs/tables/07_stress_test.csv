@@ -1,4 +1,5 @@
 scenario,pd_mult,lgd_mult,stressed_pd,stressed_lgd,expected_loss,EL_uplift_x
-baseline,1.0,1.0,0.0069,0.2464,19048310.0,1.0
-mild recession,3.22,1.43,0.0223,0.3523,87675499.0,4.6
-severely adverse,7.73,2.3,0.0535,0.5673,338777962.0,17.79
+baseline,1.0,1.0,0.0038,0.2464,10577318.0,1.0
+mild recession,2.55,1.43,0.0098,0.3516,38441459.0,3.63
+severely adverse,5.69,2.29,0.0219,0.5653,138003875.0,13.05
+COVID-2020 (observed),4.31,1.1,0.0166,0.2699,49937928.0,4.72

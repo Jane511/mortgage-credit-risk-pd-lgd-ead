@@ -81,8 +81,9 @@ class TwoStageLGD:
     def _design(self, df):
         X = df[LGD_NUMERIC].apply(pd.to_numeric, errors="coerce")
         X = X.fillna(X.median())
-        # A downturn indicator lets severity lift in the 2007/2008 vintages.
-        X = X.assign(downturn=df["vintage_year"].isin([2007, 2008]).astype(int))
+        # A downturn indicator lets severity lift in the GFC housing-crisis vintages
+        # (2006-2009), routed through the single documented classifier (R3-C2).
+        X = X.assign(downturn=d.is_downturn_vintage(df["vintage_year"]).astype(int))
         return X
 
     def fit(self, disposed):

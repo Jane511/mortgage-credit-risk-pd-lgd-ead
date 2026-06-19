@@ -2,6 +2,7 @@
 PROJECT_BUILD*.md
 CLAUDE_CODE_INSTRUCTIONS*.md
 round2.md
+build.md
 
 # ---- Freddie Mac SFLLD raw data: NEVER commit (redistribution restricted) ----
 raw data/

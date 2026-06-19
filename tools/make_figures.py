@@ -53,18 +53,21 @@ ax.set_title(f"Expected loss rises ~{sev_uplift:.0f}× under a severe downturn")
 ax.set_ylim(0, max(vals) * 1.18)
 save(fig, "expected_loss_base_vs_stress.png")
 
-# 2. Default rate by vintage (crisis vs calm) --------------------------------
-v = pd.read_csv(OUT / "01_default_lgd_by_vintage.csv")
-labels = [f"{y}\n{'crisis' if y != 2015 else 'calm'}" for y in v.vintage_year]
-colors = [CRISIS if y != 2015 else CALM for y in v.vintage_year]
-fig, ax = plt.subplots(figsize=(6.5, 4.6))
-bars = ax.bar(labels, v.default_rate * 100, color=colors, width=0.6)
-for b, val in zip(bars, v.default_rate * 100):
-    ax.text(b.get_x() + b.get_width() / 2, val, f"{val:.1f}%",
-            ha="center", va="bottom", fontweight="bold")
+# 2. Default rate by vintage across the full 2006-2022 panel -----------------
+# Colour by regime: GFC housing crisis (2006-09), COVID (2020), calm expansion.
+GFC_YEARS, COVID_YEARS = {2006, 2007, 2008, 2009}, {2020}
+v = pd.read_csv(OUT / "01_default_lgd_by_vintage.csv").sort_values("vintage_year")
+def _vcolor(y):
+    return CRISIS if y in GFC_YEARS else ("#f0a500" if y in COVID_YEARS else CALM)
+colors = [_vcolor(y) for y in v.vintage_year]
+fig, ax = plt.subplots(figsize=(11, 4.6))
+bars = ax.bar([str(y) for y in v.vintage_year], v.default_rate * 100, color=colors, width=0.72)
+ax.tick_params(axis="x", rotation=45)
 ax.set_ylabel("default rate (%)")
-ax.set_title("Default rate by origination year — crisis vs calm")
-ax.set_ylim(0, v.default_rate.max() * 100 * 1.18)
+ax.set_title("Default rate by origination year — full cycle (GFC, recovery, COVID)")
+ax.set_ylim(0, v.default_rate.max() * 100 * 1.15)
+handles = [plt.Rectangle((0, 0), 1, 1, color=c) for c in (CRISIS, "#f0a500", CALM)]
+ax.legend(handles, ["GFC crisis (2006-09)", "COVID (2020)", "calm expansion"], frameon=False, fontsize=11)
 save(fig, "default_rate_by_vintage.png")
 
 # 3. LGD — calm vs downturn ---------------------------------------------------
@@ -75,7 +78,7 @@ x = range(len(l))
 ax.bar([i - 0.2 for i in x], l.observed_lgd * 100, width=0.4, label="observed", color=ACCENT)
 ax.bar([i + 0.2 for i in x], l.modelled_lgd * 100, width=0.4, label="modelled", color=CRISIS)
 ax.set_xticks(list(x))
-ax.set_xticklabels(["calm\n(2015)", "downturn\n(2007-08)"])
+ax.set_xticklabels([str(r).replace(" (", "\n(") for r in l.regime])
 for i, (o, mo) in enumerate(zip(l.observed_lgd * 100, l.modelled_lgd * 100)):
     ax.text(i - 0.2, o, f"{o:.0f}%", ha="center", va="bottom", fontsize=11)
     ax.text(i + 0.2, mo, f"{mo:.0f}%", ha="center", va="bottom", fontsize=11)
