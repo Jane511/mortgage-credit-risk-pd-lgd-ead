@@ -129,6 +129,39 @@ property-price shock.
 Results are **monotonic** (severe > mild > baseline) and the **mild** scenario — which sits
 comfortably inside the observed data — gives a very reasonable ~2.2% stressed one-year PD.
 
+### Results — stressed PD by rating grade (the grade-migration view)
+
+The portfolio number is not the end of it. The satellite's macro coefficients produce a
+**systematic log-odds shift** for each scenario (the change in the model's linear predictor
+from baseline to stressed macro — the seasoning control cancels): **+1.70 mild, +3.24 severe**.
+That shift is applied to **each rating grade's calibrated base PD** — the "stress layer over
+the rating system" of the guidance —
+
+```
+logit(stressed PD_grade) = logit(base PD_grade) + macro_shift
+```
+
+— and each stressed PD is mapped back onto the master scale to show where the grade
+**migrates** (`scenario_stressed_pd_by_grade.csv`; chart `stressed_pd_by_grade.png`):
+
+| Grade | Base PD | Mild → PD (migrates to) | Severe → PD (migrates to) |
+|---|---:|---:|---:|
+| A | 0.05% | 0.27%  (→ D) | 1.26%  (→ H) |
+| B | 0.08% | 0.43%  (→ F) | 2.00%  (→ H+) |
+| C | 0.11% | 0.60%  (→ G) | 2.74%  (→ H+) |
+| D | 0.22% | 1.19%  (→ H+) | 5.33%  (→ H+) |
+| E | 0.40% | 2.14%  (→ H+) | 9.31%  (→ H+) |
+| F | 0.43% | 2.30%  (→ H+) | 9.94%  (→ H+) |
+| G | 0.71% | 3.75%  (→ H+) | 15.5%  (→ H+) |
+| H | 1.17% | 6.06%  (→ H+) | 23.2%  (→ H+) |
+
+Because the shift is **constant in log-odds**, the PD *multiplier* is roughly uniform across
+grades (~5.4× mild, ~25× severe), but the **absolute** PD jump is far larger for the riskier
+grades (grade H +5 pp mild / +22 pp severe, vs grade A +0.2 pp / +1.2 pp). Under severe almost
+every grade migrates to **H or beyond** — the mass downgrade that drives the stressed RWA and
+provision spike. (Severe is the simultaneous-shock upper bound flagged in §5; the mild path
+sits inside observed support.)
+
 ---
 
 ## 5. Model-risk controls and triangulation (read this before quoting the severe number)

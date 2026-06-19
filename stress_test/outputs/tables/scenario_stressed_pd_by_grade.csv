@@ -1,0 +1,25 @@
+scenario,grade,base_pd,macro_logit_shift,stressed_pd,pd_multiplier,stressed_grade,migrated_beyond_H
+baseline,A,0.0005,0.0,0.0005,1.0,A,False
+baseline,B,0.0008,0.0,0.0008,1.0,B,False
+baseline,C,0.0011,0.0,0.0011,1.0,C,False
+baseline,D,0.0022,0.0,0.0022,1.0,D,False
+baseline,E,0.004,0.0,0.004,1.0,E,False
+baseline,F,0.0043,0.0,0.0043,1.0,F,False
+baseline,G,0.0071,0.0,0.0071,1.0,G,False
+baseline,H,0.0117,0.0,0.0117,1.0,H,False
+mild recession,A,0.0005,1.695,0.00272,5.4,D,False
+mild recession,B,0.0008,1.695,0.00434,5.4,F,False
+mild recession,C,0.0011,1.695,0.00596,5.4,G,False
+mild recession,D,0.0022,1.695,0.01187,5.4,H,True
+mild recession,E,0.004,1.695,0.02141,5.4,H,True
+mild recession,F,0.0043,1.695,0.02298,5.3,H,True
+mild recession,G,0.0071,1.695,0.03749,5.3,H,True
+mild recession,H,0.0117,1.695,0.06058,5.2,H,True
+severe (GFC-like),A,0.0005,3.241,0.01262,25.2,H,True
+severe (GFC-like),B,0.0008,3.241,0.02005,25.1,H,True
+severe (GFC-like),C,0.0011,3.241,0.02737,24.9,H,True
+severe (GFC-like),D,0.0022,3.241,0.05334,24.2,H,True
+severe (GFC-like),E,0.004,3.241,0.09308,23.3,H,True
+severe (GFC-like),F,0.0043,3.241,0.0994,23.1,H,True
+severe (GFC-like),G,0.0071,3.241,0.15451,21.8,H,True
+severe (GFC-like),H,0.0117,3.241,0.23228,19.9,H,True

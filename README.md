@@ -194,7 +194,11 @@ The calibrated PD is stressed two ways:
 
 The satellite model estimates `logit(default rate) ~ unemployment + house prices + GDP` from
 79 quarters of data and is driven by the recession scenario — **unemployment is the dominant
-driver**. It deliberately runs hotter than the observed ceiling in the joint tail (see the
+driver**. Its macro coefficients give a **systematic log-odds shift** that is applied to *each
+rating grade* to produce **stressed PD per grade and grade migration** (e.g. mild recession:
+A 0.05%→0.27% (→ D), H 1.17%→6.1%; severe: a mass downgrade toward H) — see
+[scenario_stressed_pd_by_grade.csv](stress_test/outputs/tables/scenario_stressed_pd_by_grade.csv).
+It deliberately runs hotter than the observed ceiling in the joint tail (see the
 [stress_test README](stress_test/README.md) for the triangulation and model-risk controls).
 
 ---

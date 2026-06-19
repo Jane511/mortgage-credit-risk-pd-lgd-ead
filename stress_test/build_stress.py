@@ -42,6 +42,7 @@ from sklearn.linear_model import LinearRegression
 HERE = os.path.dirname(os.path.abspath(__file__))
 PARENT_PANEL = os.path.join(HERE, "..", "data", "processed", "loan_level.parquet")
 MACRO_CSV = os.path.join(HERE, "macro", "macro_annual.csv")
+GRADE_PD_CSV = os.path.join(HERE, "..", "outputs", "tables", "03e_grade_pd_moc_floor.csv")
 TAB = os.path.join(HERE, "outputs", "tables")
 FIG = os.path.join(HERE, "outputs", "charts")
 os.makedirs(TAB, exist_ok=True)
@@ -183,10 +184,9 @@ def fit_satellite(panel):
     return info, panel
 
 
-def predict_dr(info, macro_row, clip=True):
-    """Predicted quarterly default rate for a macro vector (dict of feats). By default the
-    inputs are clipped to the estimation sample's observed range -- the model is never asked
-    to extrapolate beyond the data it was fit on."""
+def predict_logit(info, macro_row, clip=True):
+    """The model's linear prediction (log-odds) for a macro vector. Inputs are clipped to the
+    estimation sample's observed range so the model never extrapolates beyond its support."""
     row = dict(macro_row)
     if clip:
         for f in info["feats"]:
@@ -194,8 +194,12 @@ def predict_dr(info, macro_row, clip=True):
             row[f] = min(max(row[f], lo), hi)
     x = pd.DataFrame([row])[info["feats"]].astype(float)
     xs = (x - info["mu"]) / info["sd"]
-    logit = float(info["model"].predict(xs)[0])
-    return 1 / (1 + np.exp(-logit))
+    return float(info["model"].predict(xs)[0])
+
+
+def predict_dr(info, macro_row, clip=True):
+    """Predicted quarterly default rate for a macro vector (dict of feats)."""
+    return 1 / (1 + np.exp(-predict_logit(info, macro_row, clip=clip)))
 
 
 # ---------------------------------------------------------------------------
@@ -261,6 +265,51 @@ def run_scenarios(info, panel, total_ead):
     return out
 
 
+def stress_pd_by_grade(info, panel):
+    """Apply the satellite model's SYSTEMATIC macro shift to EACH rating grade's base PD
+    (the "stress layer over the rating system" of the guidance):
+
+        logit(stressed_PD_grade) = logit(base_PD_grade) + delta_macro
+
+    delta_macro is the change in the model's log-odds from baseline to the stressed macro
+    (the seasoning control cancels). Each grade's stressed PD is then mapped back to the
+    master scale to show grade MIGRATION (e.g. A -> D, H -> beyond-H)."""
+    _, paths = scenario_paths(panel)
+    base_logit = predict_logit(info, paths["baseline"][0])
+    grades = pd.read_csv(GRADE_PD_CSV)[["grade", "long_run_pd_final"]].rename(
+        columns={"long_run_pd_final": "base_pd"})
+    g_pd = grades["base_pd"].to_numpy()
+    g_lab = grades["grade"].to_numpy()
+    # master-scale band upper edges = geometric midpoints between consecutive grade PDs.
+    edges = [float(np.sqrt(g_pd[i] * g_pd[i + 1])) for i in range(len(g_pd) - 1)] + [np.inf]
+
+    def to_grade(p):
+        for lab, e in zip(g_lab, edges):
+            if p <= e:
+                return lab
+        return g_lab[-1]
+
+    rows = []
+    for name, path in paths.items():
+        worst = max(path, key=lambda r: predict_dr(info, r))
+        delta = predict_logit(info, worst) - base_logit       # systematic macro log-odds shift
+        for lab, p0 in zip(g_lab, g_pd):
+            l0 = np.log(p0 / (1 - p0))
+            ps = max(1 / (1 + np.exp(-(l0 + delta))), 0.0005)  # + 5 bps floor
+            rows.append({
+                "scenario": name, "grade": lab,
+                "base_pd": round(float(p0), 5),
+                "macro_logit_shift": round(float(delta), 3),
+                "stressed_pd": round(float(ps), 5),
+                "pd_multiplier": round(float(ps / p0), 1),
+                "stressed_grade": to_grade(ps),
+                "migrated_beyond_H": bool(ps > g_pd[-1]),
+            })
+    out = pd.DataFrame(rows)
+    out.to_csv(os.path.join(TAB, "scenario_stressed_pd_by_grade.csv"), index=False)
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Charts
 # ---------------------------------------------------------------------------
@@ -294,6 +343,22 @@ def make_charts(panel, scen):
     ax.set_ylim(0, (scen["stressed_EL"] / 1e6).max() * 1.25)
     ax.tick_params(axis="x", rotation=15)
     fig.tight_layout(); fig.savefig(os.path.join(FIG, "scenario_expected_loss.png"), dpi=120); plt.close(fig)
+
+
+def chart_grade_stress(by_grade):
+    sev = by_grade[by_grade["scenario"] == "severe (GFC-like)"].reset_index(drop=True)
+    mild = by_grade[by_grade["scenario"] == "mild recession"].reset_index(drop=True)
+    x = range(len(sev))
+    fig, ax = plt.subplots(figsize=(7.4, 4.6))
+    ax.bar([i - 0.27 for i in x], sev["base_pd"] * 100, width=0.27, label="base PD", color="#2166ac")
+    ax.bar([i for i in x], mild["stressed_pd"] * 100, width=0.27, label="mild recession", color="#f0a500")
+    ax.bar([i + 0.27 for i in x], sev["stressed_pd"] * 100, width=0.27, label="severe (GFC-like)", color="#b2182b")
+    ax.set_xticks(list(x)); ax.set_xticklabels(sev["grade"])
+    ax.set_xlabel("rating grade (A safest -> H riskiest)")
+    ax.set_ylabel("one-year PD (%)")
+    ax.set_title("Stressed PD by rating grade (satellite macro shift applied per grade)")
+    ax.legend(frameon=False)
+    fig.tight_layout(); fig.savefig(os.path.join(FIG, "stressed_pd_by_grade.png"), dpi=120); plt.close(fig)
 
 
 def main():
@@ -353,7 +418,14 @@ def main():
     print(f"   triangulation: satellite severe PD x{tri[0]['severe_PD_mult_x']:.1f} | "
           f"observed-peak ceiling x{obs_peak_mult:.1f}")
 
+    print("4) stressing PD by rating grade ...")
+    by_grade = stress_pd_by_grade(info, panel)
+    show = by_grade[by_grade["scenario"] != "baseline"].pivot(
+        index="grade", columns="scenario", values="stressed_pd")
+    print((show * 100).round(2).to_string())
+
     make_charts(panel, scen)
+    chart_grade_stress(by_grade)
     print("done. tables -> outputs/tables/  charts -> outputs/charts/")
 
 
