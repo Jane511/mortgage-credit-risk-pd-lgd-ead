@@ -370,6 +370,37 @@ offset), while the **observed COVID-2020** scenario lifts it **~4.7×** (PD ×4.
 > drives it with recession scenarios. See [stress_test/README.md](stress_test/README.md) for
 > the methodology, validation, and a model-risk triangulation of the tail.
 
+#### Where the stress-test macro data comes from, and how it enters the model
+
+The macro drivers **do not come from the Freddie Mac data** — that data supplies the *dependent*
+variable (the default rate); the drivers are an **external overlay** of public US series, held in
+[stress_test/macro/macro_annual.csv](stress_test/macro/macro_annual.csv):
+
+| Driver | Real-world source (FRED series) |
+|---|---|
+| unemployment rate (%) | `UNRATE` |
+| house-price growth YoY (%) | `CSUSHPINSA` (Case-Shiller) |
+| real GDP growth (%) | `A191RL1Q225SBEA` |
+| 30-yr mortgage rate (%) | `MORTGAGE30US` |
+
+*(Committed values are approximate public figures so it runs offline;
+[fetch_macro_fred.py](stress_test/fetch_macro_fred.py) refreshes them from FRED.)*
+
+They enter the model by a **calendar-time join** — each quarter's default rate (from the loans) is
+paired with that same quarter's macro (from the CSV), then standardised and regressed:
+
+```text
+macro_annual.csv ──interpolate to quarterly──┐
+                                             merge on calendar quarter ──► logit(default_rate)
+loan_level.parquet ──quarterly default rate──┘                            ~ β·[unemp, ΔHPI, GDP, age]
+```
+
+So: **(1)** read the annual macro CSV and interpolate to quarterly; **(2)** build the quarterly
+default rate from the loan panel; **(3)** join the two by calendar quarter (bad macro lines up with
+high observed default); **(4)** standardise and regress to get the coefficients; **(5)** for a
+scenario, feed its macro values back through the fitted model → stressed PD. Full detail in
+[stress_test/README.md §2](stress_test/README.md).
+
 ---
 
 ## Key charts
