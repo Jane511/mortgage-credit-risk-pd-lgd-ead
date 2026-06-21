@@ -217,10 +217,13 @@ It deliberately runs hotter than the observed ceiling in the joint tail (see the
   (`lgd_apra`) excludes mortgage-insurance recoveries, applies the 20% high-LVR reduction and
   the **20% floor** — kept strictly apart from the IFRS 9 figures.
 - **Approach** — a transparent **two-stage ("hurdle") model** on defaulted, **disposed** loans
-  (the only ones with a settled loss): **Stage 1** a logistic regression for *whether* there
-  is a material loss, **Stage 2** a regression for *how big* the loss is. LGD = P(loss) ×
-  severity. Because severity is **cyclical** (GFC ≈1.6× the rest), the **downturn LGD** is the
-  estimate used for capital/EL (APS 113 Att D LGD paras 4–5).
+  (the only ones with a settled loss), built from **two regressions**:
+  **Stage 1 — a logistic regression** for *whether* a material loss occurs (P(loss)), and
+  **Stage 2 — a linear regression** for *how big* the loss is given it occurs (severity).
+  **LGD = P(loss) × severity.** Logistic fits the binary Stage-1 question; the continuous
+  severity uses a linear regression (a single logistic could not model a 0–100% loss fraction).
+  Because severity is **cyclical** (GFC ≈1.6× the rest), the **downturn LGD** is the estimate
+  used for capital/EL (APS 113 Att D LGD paras 4–5).
 
 ### Results — model variables, coefficients & key drivers
 
@@ -443,7 +446,7 @@ and definitions are right.
 | 03 | [PD model](notebooks/03_pd_model.ipynb) — logistic, coefficients, confusion | [metrics](outputs/tables/03_pd_metrics.csv) · [coefficients](outputs/tables/03_pd_coefficients.csv) · [confusion](outputs/tables/03_confusion_matrix.csv) |
 | 03b | [PD scorecard](notebooks/03b_PD_Scorecard.ipynb) — grades, master scale, calibration, MoC, floor | [master scale](outputs/tables/03b_master_scale.csv) · [MoC+floor](outputs/tables/03e_grade_pd_moc_floor.csv) |
 | 03c | [PD OOT validation](notebooks/03c_PD_OutOfTime_Validation.ipynb) — incl. forward cold holdout | [OOT](outputs/tables/03c_oot_validation.csv) |
-| 04 | [LGD model](notebooks/04_lgd_model.ipynb) — two-stage, coefficients, downturn, economic & APRA views | [LGD model](outputs/tables/04_lgd_model.csv) · [coefficients](outputs/tables/04_lgd_coefficients.csv) |
+| 04 | [LGD model](notebooks/04_lgd_model.ipynb) — two-stage (**logistic** P(loss) × **linear** severity), coefficients, downturn, economic & APRA views | [LGD model](outputs/tables/04_lgd_model.csv) · [coefficients](outputs/tables/04_lgd_coefficients.csv) |
 | 04b | [LGD validation](notebooks/04b_LGD_Validation.ipynb) — OOT, forward holdout, LTV calibration, benchmarking | [validation](outputs/tables/04b_lgd_validation.csv) · [LTV calibration](outputs/tables/04b_lgd_calibration_by_segment.csv) · [benchmarking](outputs/tables/04b_lgd_benchmarking.csv) |
 | 05 | [EAD](notebooks/05_ead.ipynb) | [EAD summary](outputs/tables/05_ead_summary.csv) |
 | 06 | [Expected Loss](notebooks/06_expected_loss.ipynb) — EL = PD×LGD×EAD, by grade/stage, IFRS 9 | [EL by stage](outputs/tables/06_expected_loss.csv) · [EL by grade](outputs/tables/06_el_summary_by_grade.csv) |
@@ -508,8 +511,9 @@ table; the rest run in seconds off the cache.
 - **Real loss modelling** — LGD built and validated from actual settled losses, not an assumption.
 - **Data engineering at scale** — tens of millions of monthly rows across 17 vintages into a
   clean loan-level table.
-- **Interpretable modelling** — logistic regression, a WOE/IV points scorecard with rating
-  grades, and a transparent two-stage LGD — methods a reviewer and a regulator can follow.
+- **Interpretable modelling** — logistic regression (PD, and Stage 1 of LGD), a WOE/IV points
+  scorecard with rating grades, and a transparent two-stage LGD (**logistic P(loss) × linear
+  severity**) — methods a reviewer and a regulator can follow.
 - **Model validation & governance** — reconciliation to ground truth, AUC/Gini/KS, calibration,
   confusion matrix, forward cold holdout, PSI monitoring, and a written model-development pack.
 
