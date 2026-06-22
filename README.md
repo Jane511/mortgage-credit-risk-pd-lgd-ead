@@ -153,22 +153,42 @@ realised rate. → [03d_pd_calibration_test.csv](outputs/tables/03d_pd_calibrati
 
 Estimates, given default, the fraction of EAD that is lost.
 
-**Method.**
+**Loss definition.** Economic loss ÷ EAD, computed from settled-loss records (not assumed).
+Realised loss = `EAD + delinquent accrued interest − expenses − (net sales proceeds + MI recoveries
++ non-MI recoveries)`, capped to `[0, 1.10]`. This reconciles to Freddie Mac's own loss field at 0.99
+correlation. The model is built only on **defaulted, disposed (fully resolved) loans** — the loans
+with a realised loss. Drivers: original LTV, credit score, loan size (UPB), and a GFC-downturn
+indicator. "Material loss" means LGD > 5%.
 
-- **Loss definition** — economic loss ÷ EAD, computed from settled-loss records (not assumed).
-  Realised loss = `EAD + delinquent accrued interest − expenses − (net sales proceeds + MI
-  recoveries + non-MI recoveries)`, capped to `[0, 1.10]`. This reconciles to Freddie Mac's own loss
-  field at 0.99 correlation.
-- **Model** — a two-stage ("hurdle") model on defaulted, disposed (fully resolved) loans, combining
-  **two regressions**:
-  - **Stage 1 — logistic regression**: probability that a material loss occurs, `P(loss)`.
-  - **Stage 2 — linear regression**: loss severity given a loss occurs.
-  - `LGD = P(loss) × severity`. (Logistic fits the binary Stage-1 event; the continuous 0–100%
-    severity requires a linear regression, not a logistic.)
-- **Variables** — original LTV, credit score, loan size (UPB), and a GFC-downturn indicator.
-- **Variants** — an **economic (discounted)** LGD (`lgd_econ`, recovery discounted from disposition
-  back to default) and an **APRA capital view** (`lgd_apra`: MI recoveries excluded, 20% high-LVR
-  reduction, 20% floor), kept separate from the IFRS 9 figures.
+**Why a two-stage ("hurdle") model.** Realised LGD has a large **spike at zero**: many mortgage
+defaults cure or are resolved with little or no loss, while the rest produce a continuous severity. A
+single regression cannot fit both that lump of zeros and the continuous tail at once, so the model
+splits the problem into two questions and **multiplies** the answers:
+
+| Stage | Question | Outcome type | Model used | Output |
+|---|---|---|---|---|
+| 1 | Does a material loss occur at all? | binary (yes / no) | **logistic regression** | `P(loss)` — probability a loss occurs |
+| 2 | How big is the loss, given one occurs? | continuous 0–100% | **linear regression** (loss-only loans) | `severity` — expected loss size |
+
+**Why two *different* model types.** The two stages answer different kinds of question, so they need
+different models. Stage 1 is a **binary event** (loss / no loss), which is exactly what **logistic
+regression** is for — it outputs a probability. Stage 2 is a **continuous fraction** (0–100%), which
+needs a **linear regression** — a logistic regression cannot output a continuous loss size, and a
+single linear model fitted across *all* defaults would be distorted by the mass of zero-loss cases.
+
+**The final LGD** is the **product of the two models**, computed per loan:
+
+> **LGD = P(loss) × severity**
+
+i.e. (probability a loss happens) × (expected size if it does). For example, a loan with
+`P(loss) = 0.80` and `severity = 0.70` has **LGD = 0.56**. This per-loan expected LGD is what feeds
+Expected Loss (§5); averaged over the disposed defaults it gives the regime figures below.
+
+**Other LGD views.**
+
+- **Economic (discounted)** LGD (`lgd_econ`) — the recovery discounted from disposition back to
+  default; and an **APRA capital view** (`lgd_apra`: MI recoveries excluded, 20% high-LVR reduction,
+  20% floor), kept separate from the IFRS 9 figures.
 - **Downturn LGD** — severity is cyclical (GFC ≈ 1.6× the rest), so the downturn LGD is used for
   capital/EL (APS 113 Att D LGD paras 4–5). An incomplete-workout sensitivity covers unresolved
   recent defaults.
@@ -272,46 +292,44 @@ Portfolio 12-month EL ≈ $236m, rising to ≈ $323m once IFRS 9 lifetime ECL ap
 
 ## 6. Stress testing
 
-Two methods are implemented. Both apply the no-diversification rule (PD and LGD shocks stack with
-no offset; APG 113 para 92) and both target at least a mild-recession scenario (Basel CRE36.51).
+A stress test asks: **if the economy deteriorates, how much does Expected Loss rise?** Each method
+below turns a recession scenario into a **stressed PD** and a **stressed LGD**, then recomputes
+**EL = PD × LGD × EAD**. Both stack the PD and LGD shocks with no diversification offset (APG 113
+para 92) and cover at least a mild recession (Basel CRE36.51). Two methods are implemented:
 
-- **Method A — observed multipliers** (notebook 07): multipliers read directly from the data
-  (GFC-vs-calm and COVID-vs-calm ratios) and applied to PD and LGD.
-- **Method B — statistical macro-credit "satellite" model** ([stress_test/](stress_test/)): a
-  logistic regression of the portfolio's quarterly default rate on macro variables, driven by
-  scenario macro paths to produce a stressed PD for each rating grade.
+- **Method A — observed multipliers** (notebook 07): the simple approach — multiply the baseline PD
+  and LGD by ratios read directly from the data.
+- **Method B — macro-credit "satellite" model** ([stress_test/](stress_test/)): the statistical
+  approach — a **logistic regression that uses the macro variables to predict the default rate**, so a
+  recession scenario produces the stressed PD through the fitted coefficients, not an assumed multiplier.
 
-### 6.1 Stressed PD
+### 6.1 Method A — observed multipliers
 
-| Method | Severe scenario | Mild / COVID |
-|---|---|---|
-| Observed multipliers (notebook 07) | PD ×5.7 (portfolio 0.40% → 2.2%) | mild ×2.6 · COVID ×4.3 |
-| Satellite model (stress_test/) | PD ×24.7 (simultaneous-shock upper bound, triangulated to the observed ceiling ×7.8) | mild ×5.4 |
+Read the downturn multipliers straight from the data (the ratio of the GFC and COVID default rate and
+LGD to the calm-period values) and apply them to the baseline PD and LGD.
+→ [07_stress_test.csv](outputs/tables/07_stress_test.csv):
 
-### 6.2 Stressed LGD
+| Scenario | PD multiplier | LGD multiplier | EL uplift |
+|---|---:|---:|---:|
+| severe (GFC) | ×5.7 | ×2.3 | ~13× |
+| COVID-2020 (observed) | ×4.3 | ×1.1 | ~4.7× |
 
-Severity is collateral-driven, so it is stressed through the house-price shock, anchored to the
-measured regimes in §3:
+### 6.2 Method B — macro-credit satellite model (stressed PD)
 
-| Scenario | Stressed LGD | Multiplier | Driver |
-|---|---:|---:|---|
-| baseline (calm) | ~34% | ×1.0 | calm/other regime |
-| severe (house prices −25%) | ~56% | ×2.3 | GFC downturn LGD (measured) |
-| COVID-2020 | ~27% | ×1.1 | high default but mild severity (house prices rose) |
+The core is one **logistic regression that takes the macro variables as inputs and predicts the
+default rate**:
 
-A downturn raises both PD and LGD, except COVID, where LGD barely moved — the key asymmetry between
-the two observed downturns.
+```text
+logit(default rate) = α + β₁·unemployment + β₂·house-price growth + β₃·GDP growth + (seasoning control)
+```
 
-### 6.3 Stressed Expected Loss (method A)
-
-→ [07_stress_test.csv](outputs/tables/07_stress_test.csv): on the calm baseline book, a severe GFC
-scenario lifts EL ~13× (PD ×5.7, LGD ×2.3); the observed COVID-2020 scenario lifts it ~4.7×
-(PD ×4.3, LGD ×1.1).
-
-### 6.4 Statistical satellite model (method B)
+It is fitted on **79 quarters (2006Q1–2025Q3)**, pairing each quarter's observed default rate with
+that quarter's macro (the join below). To stress the book, a recession's macro values are plugged into
+this fitted equation, which then outputs a **higher predicted default rate — the stressed PD**. The
+macro variables therefore drive PD through the estimated coefficients, not through an assumed factor.
 
 **Where the macro data comes from.** The macro drivers are an external overlay of public US series
-(they do not come from the loan data, which supplies the default rate). They are held in
+(they are not in the loan data, which supplies the default rate), held in
 [stress_test/macro/macro_annual.csv](stress_test/macro/macro_annual.csv):
 
 | Driver | Source (FRED series) |
@@ -321,32 +339,30 @@ scenario lifts EL ~13× (PD ×5.7, LGD ×2.3); the observed COVID-2020 scenario 
 | real GDP growth (%) | `A191RL1Q225SBEA` |
 | 30-yr mortgage rate (%) | `MORTGAGE30US` |
 
-Committed values are approximate public figures so the pipeline runs offline;
+Committed values are approximate public figures (so the pipeline runs offline);
 [fetch_macro_fred.py](stress_test/fetch_macro_fred.py) refreshes them from FRED.
 
-**How the drivers enter the model — a calendar-time join.**
+**How the macro data enters the regression — a calendar-time join.**
 
 ```text
 macro_annual.csv ──interpolate to quarterly──┐
-                                             merge on calendar quarter ──► logit(default_rate)
-loan_level.parquet ──quarterly default rate──┘                            ~ β·[unemp, ΔHPI, GDP, age]
+                                             merge on calendar quarter ──► fit  logit(default rate)
+loan_level.parquet ──quarterly default rate──┘                                  ~ β·[unemp, ΔHPI, GDP, age]
 ```
 
-1. Read the annual macro CSV and interpolate to quarterly.
-2. Build a quarterly point-in-time default rate from the loan panel (79 quarters, 2006Q1–2025Q3).
-3. Join the two by calendar quarter (so bad macro aligns with high observed default).
-4. Standardise the drivers and fit a logistic regression of the default rate on them — these are the
-   satellite coefficients.
-5. For a scenario, feed its (clipped-to-support) macro values back through the fitted model →
-   stressed default rate.
+1. interpolate the annual macro to quarterly;
+2. build a quarterly point-in-time default rate from the loan panel;
+3. join the two by calendar quarter (so bad macro aligns with high observed default);
+4. standardise the drivers and **fit the logistic regression** → the satellite coefficients;
+5. for a scenario, plug its (clipped-to-support) macro values back in → stressed default rate.
 
-**Satellite coefficients** (standardised; `mortgage_rate` excluded for a perverse sign):
-unemployment +0.97 (dominant), house-price growth −0.18, GDP growth −0.12, seasoning control +0.50.
-All signs are economically correct. → [satellite_coefficients.csv](stress_test/outputs/tables/satellite_coefficients.csv)
+**Coefficients** (standardised; `mortgage_rate` excluded for a perverse sign): unemployment **+0.97**
+(dominant), house-price growth −0.18, GDP growth −0.12, seasoning control +0.50 — all economically
+correct. → [satellite_coefficients.csv](stress_test/outputs/tables/satellite_coefficients.csv)
 
-**Stressed PD by rating grade + grade migration.** The model's systematic macro **log-odds shift**
-(mild +1.70, severe +3.24) is added to each grade's base log-odds:
-`logit(stressed PD_grade) = logit(base PD_grade) + macro_shift`. Each stressed PD is mapped back to
+**Stressed PD per rating grade + migration.** A scenario's macro effect is a single **log-odds shift**
+(mild +1.70, severe +3.24) added to each grade's base PD —
+`logit(stressed PD_grade) = logit(base PD_grade) + macro_shift` — and each stressed PD is mapped back to
 the master scale to show migration → [scenario_stressed_pd_by_grade.csv](stress_test/outputs/tables/scenario_stressed_pd_by_grade.csv):
 
 | Grade | Base PD | Mild → PD (migrates to) | Severe → PD (migrates to) |
@@ -356,10 +372,31 @@ the master scale to show migration → [scenario_stressed_pd_by_grade.csv](stres
 | E | 0.40% | 2.14% (→ H+) | 9.31% (→ H+) |
 | H | 1.17% | 6.06% (→ H+) | 23.2% (→ H+) |
 
-The shift is constant in log-odds (a roughly uniform ~5.4× mild / ~25× severe multiplier), but the
-absolute PD jump is larger for riskier grades. The severe satellite result is a **simultaneous-shock
-upper bound** and is triangulated against the observed ceiling (×7.8) and method A (×5.7); see
-[stress_test/README.md](stress_test/README.md) for the full model-risk controls.
+The severe satellite PD (×24.7 vs baseline) is a **simultaneous-shock upper bound** — it assumes peak
+unemployment and a house-price crash at once, worse than any single observed quarter — so it is
+triangulated against the observed ceiling (×7.8) and method A (×5.7). See
+[stress_test/README.md](stress_test/README.md) for the model-risk controls.
+
+### 6.3 Stressed LGD
+
+LGD is **not** fitted on macro by a separate regression here. It is stressed by the scenario's
+**house-price fall** — itself one of the macro variables — anchored to the **measured** calm and
+downturn LGD from §3:
+
+| Scenario | Stressed LGD | Multiplier | Driver |
+|---|---:|---:|---|
+| baseline (calm) | ~34% | ×1.0 | calm/other regime |
+| severe (house prices −25%) | ~56% | ×2.3 | GFC downturn LGD (measured from settled losses) |
+| COVID-2020 | ~27% | ×1.1 | high default but mild severity (house prices rose) |
+
+A downturn raises both PD and LGD, except COVID, where LGD barely moved. (A fuller satellite would
+also regress LGD severity on macro; here LGD uses the directly-measured downturn anchors.)
+
+### 6.4 Stressed Expected Loss
+
+Combining the stressed parameters, **stressed EL = stressed PD × stressed LGD × EAD**. Under method A a
+severe GFC scenario lifts portfolio EL **~13×** and the observed COVID shape **~4.7×** (§6.1) — PD and
+LGD worsening together (no diversification offset) is why EL rises far more than either driver alone.
 
 ---
 
