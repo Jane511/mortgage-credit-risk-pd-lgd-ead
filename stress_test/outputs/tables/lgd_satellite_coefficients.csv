@@ -1,0 +1,4 @@
+variable,coefficient_std,expected_sign,sign_ok
+intercept,-0.1356,,
+unemployment,0.2325,1.0,1.0
+hpi_yoy,-0.159,-1.0,1.0

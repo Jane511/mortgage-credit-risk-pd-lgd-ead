@@ -41,6 +41,7 @@ from sklearn.linear_model import LinearRegression
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PARENT_PANEL = os.path.join(HERE, "..", "data", "processed", "loan_level.parquet")
+ANALYSIS_BASE = os.path.join(HERE, "..", "data", "processed", "analysis_base.parquet")
 MACRO_CSV = os.path.join(HERE, "macro", "macro_annual.csv")
 GRADE_PD_CSV = os.path.join(HERE, "..", "outputs", "tables", "03e_grade_pd_moc_floor.csv")
 TAB = os.path.join(HERE, "outputs", "tables")
@@ -56,6 +57,14 @@ os.makedirs(FIG, exist_ok=True)
 MACRO_VARS = ["unemployment", "hpi_yoy", "gdp_growth"]
 # Expected economic sign of each driver on default risk (used as a validation check).
 EXPECTED_SIGN = {"unemployment": +1, "hpi_yoy": -1, "gdp_growth": -1, "avg_age_q": +1}
+
+# LGD satellite drivers and expected signs. Severity is collateral-driven, so falling house
+# prices RAISE LGD (negative sign), and a weak labour market lowers sale prices / lengthens
+# workouts (positive). gdp_growth is EXCLUDED: like mortgage_rate in the PD model it carries a
+# perverse sign in this sample (confounded with the house-price recovery), so it fails the
+# economic-sign check and is dropped under the sign-restriction principle.
+LGD_MACRO_VARS = ["unemployment", "hpi_yoy"]
+LGD_EXPECTED_SIGN = {"unemployment": +1, "hpi_yoy": -1}
 
 # Portfolio anchors carried over from the parent project's Expected-Loss build so the
 # stressed numbers reconcile with notebook 06 (see README).
@@ -203,6 +212,66 @@ def predict_dr(info, macro_row, clip=True):
 
 
 # ---------------------------------------------------------------------------
+# 3b. LGD satellite -- a SECOND regression: realised LGD on macro
+# ---------------------------------------------------------------------------
+def build_lgd_panel(min_n=30):
+    """Quarterly realised-LGD panel: for each DISPOSITION quarter, the mean LGD of loans whose
+    loss settled that quarter (severity is realised when the collateral is sold, so disposition
+    quarter is the right calendar key), merged with that quarter's macro. Quarters with fewer
+    than `min_n` disposals are dropped for stability."""
+    df = pd.read_parquet(ANALYSIS_BASE)
+    d = df[df["disposed"] & df["lgd"].notna()].copy()
+    d["qord"] = yyyymm_to_qord(d["disposition_period"])
+    d = d.dropna(subset=["qord"])
+    g = d.groupby(d["qord"].astype(int)).agg(
+        n=("lgd", "size"), mean_lgd=("lgd", "mean")).reset_index().rename(columns={"qord": "qord"})
+    g = g[g["n"] >= min_n].reset_index(drop=True)
+    g["quarter"] = g["qord"].apply(qord_to_label)
+    g["year"] = g["qord"] // 4
+    macro = load_quarterly_macro(g["qord"])
+    return g.merge(macro, on="qord", how="left")
+
+
+def fit_lgd_satellite(panel):
+    """Logistic-form regression of the quarterly mean LGD on macro: logit(LGD) ~ macro. Parallels
+    the PD satellite, so a recession scenario produces a stressed LGD through fitted coefficients
+    (not an assumed multiplier). Returns the same `info` dict shape as fit_satellite."""
+    feats = LGD_MACRO_VARS
+    eps = 1e-3
+    lgd = panel["mean_lgd"].clip(eps, 1 - eps)
+    y = np.log(lgd / (1 - lgd))                      # logit of the quarterly mean LGD
+    X = panel[feats].astype(float)
+    mu, sd = X.mean(), X.std(ddof=0)
+    model = LinearRegression().fit((X - mu) / sd, y)
+    pred = model.predict((X - mu) / sd)
+    r2 = 1 - float(((y - pred) ** 2).sum()) / float(((y - y.mean()) ** 2).sum())
+    support = {f: (float(X[f].min()), float(X[f].max())) for f in feats}
+    coef = pd.DataFrame({"variable": feats, "coefficient_std": model.coef_.round(4)})
+    coef["expected_sign"] = [LGD_EXPECTED_SIGN[f] for f in feats]
+    coef["sign_ok"] = np.sign(coef["coefficient_std"]) == coef["expected_sign"]
+    coef = pd.concat([
+        pd.DataFrame([{"variable": "intercept", "coefficient_std": round(float(model.intercept_), 4),
+                       "expected_sign": np.nan, "sign_ok": np.nan}]),
+        coef,
+    ], ignore_index=True)
+    return {"model": model, "feats": feats, "mu": mu, "sd": sd, "r2": r2, "coef": coef,
+            "support": support}
+
+
+def predict_lgd(info, macro_row, clip=True):
+    """Predicted quarterly mean LGD for a macro vector, from the LGD satellite (inputs clipped
+    to support)."""
+    row = dict(macro_row)
+    if clip:
+        for f in info["feats"]:
+            lo, hi = info["support"][f]
+            row[f] = min(max(row[f], lo), hi)
+    x = pd.DataFrame([row])[info["feats"]].astype(float)
+    xs = (x - info["mu"]) / info["sd"]
+    return 1 / (1 + np.exp(-float(info["model"].predict(xs)[0])))
+
+
+# ---------------------------------------------------------------------------
 # 4. Scenarios -> stressed PD -> stressed EL
 # ---------------------------------------------------------------------------
 def scenario_paths(panel):
@@ -226,36 +295,30 @@ def scenario_paths(panel):
     }
 
 
-def lgd_for_scenario(name, hpi_worst):
-    """Scenario LGD anchored to the parent's observed regimes, scaled by the property
-    shock (collateral-driven). Baseline ~ calm LGD; severe ~ downturn LGD."""
-    if name == "baseline":
-        return LGD_CALM
-    # linear in the property-price fall between calm (hpi>=0) and downturn (hpi<=-25)
-    frac = min(max(-hpi_worst / 25.0, 0.0), 1.0)
-    return round(LGD_CALM + frac * (LGD_DOWNTURN - LGD_CALM), 4)
-
-
-def run_scenarios(info, panel, total_ead):
+def run_scenarios(pd_info, lgd_info, panel, total_ead):
+    """Both PD and LGD are stressed by their own satellite regression on the scenario macro.
+    PD: stressed PD = base PD x (satellite default-rate multiplier). LGD: the LGD satellite gives
+    a macro-driven multiplier vs baseline, applied to the MEASURED baseline LGD (so the level stays
+    anchored to the settled-loss data while the sensitivity comes from the regression). The shocks
+    then stack with no diversification offset (APG 113 para 92)."""
     base_macro, paths = scenario_paths(panel)
-    dr_base = predict_dr(info, paths["baseline"][0])
+    dr_base = predict_dr(pd_info, paths["baseline"][0])
+    lgd_base = predict_lgd(lgd_info, paths["baseline"][0])
     rows = []
     for name, path in paths.items():
-        # Worst (year-1) macro drives the one-year stressed PD/LGD for the headline number.
-        worst = max(path, key=lambda r: predict_dr(info, r))
-        dr_s = predict_dr(info, worst)
-        pd_mult = dr_s / dr_base
+        worst = max(path, key=lambda r: predict_dr(pd_info, r))   # year-1 worst drives the headline
+        pd_mult = predict_dr(pd_info, worst) / dr_base
         stressed_pd = min(BASE_PORTFOLIO_PD * pd_mult, 1.0)
-        stressed_lgd = lgd_for_scenario(name, worst["hpi_yoy"])
-        # No-diversification (APG 113 para 92): PD and LGD shocks stack, no offset.
+        lgd_mult = predict_lgd(lgd_info, worst) / lgd_base
+        stressed_lgd = round(min(LGD_CALM * lgd_mult, 1.0), 4)
         el = stressed_pd * stressed_lgd * total_ead
         rows.append({
             "scenario": name,
             "worst_unemployment": worst["unemployment"],
             "worst_hpi_yoy": worst["hpi_yoy"],
-            "satellite_default_rate": round(dr_s, 5),
             "pd_multiplier_vs_base": round(pd_mult, 2),
             "stressed_pd": round(stressed_pd, 5),
+            "lgd_multiplier_vs_base": round(lgd_mult, 2),
             "stressed_lgd": stressed_lgd,
             "stressed_EL": round(el, 0),
         })
@@ -385,9 +448,18 @@ def main():
         info["r2"], info["oos_corr"], bool(info["coef"]["sign_ok"].dropna().all())))
     print(info["coef"].to_string(index=False))
 
+    print("2b) fitting LGD satellite (LGD ~ macro) ...")
+    lgd_panel = build_lgd_panel()
+    lgd_info = fit_lgd_satellite(lgd_panel)
+    lgd_info["coef"].to_csv(os.path.join(TAB, "lgd_satellite_coefficients.csv"), index=False)
+    lgd_panel.to_csv(os.path.join(TAB, "lgd_satellite_panel.csv"), index=False)
+    print("   LGD R2={:.3f}  signs_ok={}  ({} disposition quarters)".format(
+        lgd_info["r2"], bool(lgd_info["coef"]["sign_ok"].dropna().all()), len(lgd_panel)))
+    print(lgd_info["coef"].to_string(index=False))
+
     print("3) running scenarios ...")
     total_ead = float(pd.read_parquet(PARENT_PANEL)["original_upb"].sum())
-    scen = run_scenarios(info, panel, total_ead)
+    scen = run_scenarios(info, lgd_info, panel, total_ead)
     scen.to_csv(os.path.join(TAB, "scenario_stressed_el.csv"), index=False)
     print(scen.to_string(index=False))
 

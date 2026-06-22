@@ -25,12 +25,12 @@ to *estimate and validate* a macro-to-default relationship rather than assume on
 
 | Step | What happens | File / output |
 |---|---|---|
-| **1. Default panel** | Build a calendar-quarter **point-in-time default-rate** series from the parent's cached loan-level table | `outputs/tables/satellite_panel.csv` |
+| **1. Panels** | Calendar-quarter **point-in-time default-rate** series + a **quarterly LGD** series, from the parent's cached tables | `satellite_panel.csv`, `lgd_satellite_panel.csv` |
 | **2. Macro data** | US unemployment, house-price growth, GDP, mortgage rate (2006–2024), interpolated to quarterly | `macro/macro_annual.csv` |
-| **3. Satellite model** | Fit `logit(default_rate_t) ~ macro_t (+ seasoning)`; validate signs, fit, out-of-time | `outputs/tables/satellite_coefficients.csv`, `satellite_fit.csv` |
-| **4. Scenarios** | Run baseline / mild / severe macro paths through the model → stressed PD → stressed EL | `outputs/tables/scenario_stressed_el.csv` |
+| **3. Two satellite regressions** | `logit(default_rate) ~ macro (+ seasoning)` (PD) and `logit(LGD) ~ macro` (LGD); validate signs / fit | `satellite_coefficients.csv`, `lgd_satellite_coefficients.csv` |
+| **4. Scenarios** | Run baseline / mild / severe macro paths through both → stressed PD (per grade) + stressed LGD → stressed EL | `scenario_stressed_el.csv` |
 
-Run it with `python build_stress.py` (reads the parent's `data/processed/loan_level.parquet`).
+Run it with `python build_stress.py` (reads the parent's cached `loan_level.parquet` + `analysis_base.parquet`).
 
 ---
 
@@ -123,7 +123,7 @@ moves with **book seasoning**, which is why `avg_age` is included as a control �
 
 ---
 
-## 3. The satellite model — methodology and results
+## 3. The PD satellite — methodology and results
 
 ### Methodology
 
@@ -169,22 +169,67 @@ forbearance/disaster control.
 
 ---
 
+## 3b. The LGD satellite — a second regression (LGD ~ macro)
+
+LGD is stressed by its **own** macro regression, parallel to the PD satellite, so stressed LGD comes
+from fitted coefficients rather than a fixed anchor. The dependent variable is the **quarterly mean
+realised LGD by disposition quarter** — severity is realised when the collateral is sold, so the
+disposition quarter is the right calendar key — built from the parent's `analysis_base.parquet` and
+merged with the same macro (`build_lgd_panel()`):
+
+```text
+logit(LGD_t) = α + β·[unemployment, house-price growth]_t
+```
+
+fitted on **59 disposition quarters (2008Q3–2025Q2)** with ≥30 disposals each.
+
+### Coefficients (`lgd_satellite_coefficients.csv`)
+
+| Variable | Coefficient (per 1 SD) | Expected sign | OK? |
+|---|---:|:---:|:---:|
+| **hpi_yoy** (house-price growth) | **−0.16** | − | ✅ *(key driver — falling prices raise LGD)* |
+| unemployment | +0.23 | + | ✅ |
+| ~~gdp_growth~~ | *excluded* | − | ❌ → dropped (perverse sign) |
+
+In-sample R² 0.44. House prices are the natural driver of mortgage severity (collateral value); a
+weak labour market lengthens workouts and depresses sale prices. `gdp_growth` is dropped under the
+same sign-restriction rule as `mortgage_rate` in the PD satellite.
+
+### Stressed LGD
+
+The regression gives a **macro-driven LGD multiplier vs baseline**, applied to the measured baseline
+LGD (~34% from `04_lgd_model.csv`) so the level stays anchored to the settled-loss data while the
+sensitivity comes from the regression:
+
+| Scenario | Worst ΔHPI | LGD multiplier | Stressed LGD |
+|---|---:|---:|---:|
+| baseline | +5% | ×1.00 | 0.34 |
+| mild recession | −4% | ×1.34 | 0.46 |
+| severe (GFC-like) | −7% | ×1.57 | 0.53 |
+
+The severe ~0.53 sits just below the directly-measured GFC downturn LGD of ~0.56 — the regression and
+the realised data agree.
+
+---
+
 ## 4. Scenarios and stressed Expected Loss
 
-Three 3-year macro paths (year-1 peak shown) are run through the model. Scenario inputs are
-**clipped to the estimation sample's observed range** so the model is never used to
-extrapolate beyond the data it learned from. EL = stressed PD × stressed LGD × EAD, with the
-**no-diversification** rule (APG 113 para 92 — PD and LGD shocks stack, no offset). Stressed
-LGD is anchored to the parent's observed regimes (calm ~34% → downturn ~56%), scaled by the
-property-price shock.
+Three 3-year macro paths (year-1 peak shown) are run through **both** satellites. Scenario inputs are
+**clipped to the estimation sample's observed range** so neither model extrapolates beyond the data it
+learned from. EL = stressed PD × stressed LGD × EAD, with the **no-diversification** rule (APG 113
+para 92 — PD and LGD shocks stack, no offset). The stressed PD comes from the default-rate satellite
+(§3) and the stressed LGD from the LGD satellite (§3b).
 
 ### Results (`scenario_stressed_el.csv`)
 
-| Scenario | Worst unemp. | Worst ΔHPI | Satellite PD ×base | Stressed PD | Stressed LGD | Stressed EL | EL ×base |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| **baseline** | 4.6% | +5% | 1.0× | 0.40% | 34% | ~$262m | 1.0× |
-| **mild recession** (CRE36.51) | 7.0% | −4% | 5.4× | 2.2% | 38% | ~$1.6bn | 6.0× |
-| **severe (GFC-like)** | 9.6% | −7% | 24.7× | 9.9% | 40% | ~$7.7bn | 29× |
+| Scenario | Worst unemp. | Worst ΔHPI | PD ×base | Stressed PD | LGD ×base | Stressed LGD | Stressed EL | EL ×base |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| **baseline** | 4.6% | +5% | 1.0× | 0.40% | 1.0× | 0.34 | ~$262m | 1.0× |
+| **mild recession** (CRE36.51) | 7.0% | −4% | 5.4× | 2.2% | 1.34× | 0.46 | ~$1.9bn | 7.3× |
+| **severe (GFC-like)** | 9.6% | −7% | 24.7× | 9.9% | 1.57× | 0.53 | ~$10.2bn | 38.8× |
+
+Both the stressed PD (PD satellite, §3) and the stressed LGD (LGD satellite, §3b) come from the macro
+regressions.
 
 Results are **monotonic** (severe > mild > baseline) and the **mild** scenario — which sits
 comfortably inside the observed data — gives a very reasonable ~2.2% stressed one-year PD.

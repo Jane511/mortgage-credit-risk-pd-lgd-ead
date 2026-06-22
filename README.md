@@ -18,7 +18,7 @@ and every result is reproduced by the pipeline into [outputs/tables/](outputs/ta
 | **EAD** | Outstanding balance at default. Supervisory EAD — no credit-conversion factor (a term mortgage has no undrawn limit). |
 | **EL** | EL = PD × LGD × EAD per loan, using the calibrated capital PD; IFRS 9 / AASB 9 Stage 1/2/3. |
 | **Stress — method A** | Observed downturn multipliers (GFC and COVID) applied to PD and LGD. |
-| **Stress — method B** | Macro-credit "satellite" model: logistic regression of the quarterly default rate on macro variables → per-grade stressed PD + grade migration. |
+| **Stress — method B** | Macro-credit "satellite" model: two macro regressions — quarterly default rate → stressed PD (per grade, with migration) and quarterly LGD → stressed LGD. |
 | **Validation** | Discrimination (AUC/Gini/KS), calibration plot, binomial + Hosmer-Lemeshow test, confusion matrix, out-of-time and forward cold holdout, PSI. LGD: loss reconciliation, cohort backtest, segment calibration, benchmarking. |
 
 ## Results (summary)
@@ -300,8 +300,9 @@ para 92) and cover at least a mild recession (Basel CRE36.51). Two methods are i
 - **Method A — observed multipliers** (notebook 07): the simple approach — multiply the baseline PD
   and LGD by ratios read directly from the data.
 - **Method B — macro-credit "satellite" model** ([stress_test/](stress_test/)): the statistical
-  approach — a **logistic regression that uses the macro variables to predict the default rate**, so a
-  recession scenario produces the stressed PD through the fitted coefficients, not an assumed multiplier.
+  approach — **two regressions on the macro variables**, one predicting the default rate (→ stressed
+  PD) and one predicting LGD (→ stressed LGD), so a recession scenario produces the stressed
+  parameters through fitted coefficients, not assumed multipliers.
 
 ### 6.1 Method A — observed multipliers
 
@@ -377,26 +378,42 @@ unemployment and a house-price crash at once, worse than any single observed qua
 triangulated against the observed ceiling (×7.8) and method A (×5.7). See
 [stress_test/README.md](stress_test/README.md) for the model-risk controls.
 
-### 6.3 Stressed LGD
+### 6.3 Method B — LGD satellite (stressed LGD)
 
-LGD is **not** fitted on macro by a separate regression here. It is stressed by the scenario's
-**house-price fall** — itself one of the macro variables — anchored to the **measured** calm and
-downturn LGD from §3:
+LGD is stressed by its **own** macro regression, parallel to the PD satellite. The quarterly mean
+realised LGD — taken by **disposition quarter**, since severity is realised when the collateral is
+sold — is regressed on macro:
 
-| Scenario | Stressed LGD | Multiplier | Driver |
-|---|---:|---:|---|
-| baseline (calm) | ~34% | ×1.0 | calm/other regime |
-| severe (house prices −25%) | ~56% | ×2.3 | GFC downturn LGD (measured from settled losses) |
-| COVID-2020 | ~27% | ×1.1 | high default but mild severity (house prices rose) |
+```text
+logit(LGD) = α + β₁·unemployment + β₂·house-price growth
+```
 
-A downturn raises both PD and LGD, except COVID, where LGD barely moved. (A fuller satellite would
-also regress LGD severity on macro; here LGD uses the directly-measured downturn anchors.)
+fitted on **59 disposition quarters (2008–2025)**. House prices are the key driver: when prices fall,
+recoveries shrink and LGD rises. **Coefficients** (standardised; `gdp_growth` excluded for a perverse
+sign): unemployment **+0.23**, house-price growth **−0.16** — both economically correct (R² 0.44).
+→ [lgd_satellite_coefficients.csv](stress_test/outputs/tables/lgd_satellite_coefficients.csv)
+
+The regression's macro-driven **LGD multiplier vs baseline** is applied to the measured baseline LGD
+(§3), so the level stays anchored to the settled-loss data while the sensitivity comes from the
+regression:
+
+| Scenario | Worst ΔHPI | LGD multiplier | Stressed LGD |
+|---|---:|---:|---:|
+| baseline | +5% | ×1.0 | 0.34 |
+| mild recession | −4% | ×1.34 | 0.46 |
+| severe (GFC-like) | −7% | ×1.57 | 0.53 |
+
+The severe ~0.53 is close to the directly-measured GFC downturn LGD of ~0.56 — the regression and the
+realised data agree.
 
 ### 6.4 Stressed Expected Loss
 
-Combining the stressed parameters, **stressed EL = stressed PD × stressed LGD × EAD**. Under method A a
-severe GFC scenario lifts portfolio EL **~13×** and the observed COVID shape **~4.7×** (§6.1) — PD and
-LGD worsening together (no diversification offset) is why EL rises far more than either driver alone.
+Combining the stressed parameters, **stressed EL = stressed PD × stressed LGD × EAD**, with the PD and
+LGD shocks stacking (no diversification offset). Under **method A** a severe GFC scenario lifts
+portfolio EL **~13×** and the observed COVID shape **~4.7×** (§6.1). Under **method B** (both satellite
+regressions) the same severe scenario combines the PD shift (§6.2) with the LGD multiplier ×1.57
+(§6.3); the headline uplift is larger because the satellite PD is the simultaneous-shock upper bound
+(triangulated in §6.2). → [scenario_stressed_el.csv](stress_test/outputs/tables/scenario_stressed_el.csv)
 
 ---
 
