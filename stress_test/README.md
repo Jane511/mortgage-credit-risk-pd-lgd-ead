@@ -321,6 +321,10 @@ check, no-diversification, and the avg-age seasoning control.
 - **Aggregate confound** — the quarterly default rate mixes macro with book seasoning; the
   avg-age control mitigates but does not fully remove this (a production model would use an
   age–period–cohort or vintage-fixed-effects design).
+- **LGD satellite composition** — the quarterly mean LGD is taken by disposition quarter, so it also
+  reflects *which* cohorts happen to be resolving (not only the macro). Its stressed values are
+  therefore applied as a multiplier on the measured baseline LGD (not used as an absolute level), and
+  the severe result is cross-checked against the directly-measured downturn LGD (~0.56).
 - **Macro data is approximate** — refresh via `fetch_macro_fred.py` for real figures.
 - **One-year horizon** — multi-year/lifetime paths and grade-migration matrices (the
   through-the-cycle alternative in the guidance) are noted as the next extension.
@@ -330,22 +334,25 @@ check, no-diversification, and the avg-age seasoning control.
 ## How to run
 
 ```bash
-# from this stress_test/ folder, after the parent pipeline has cached loan_level.parquet
-python build_stress.py            # builds panel, fits satellite, runs scenarios, writes outputs
+# from this stress_test/ folder, after the parent pipeline has cached its processed tables
+python build_stress.py            # builds both panels, fits both satellites (PD + LGD), runs scenarios
 # optional: refresh macro from FRED (needs internet + pandas-datareader)
 python fetch_macro_fred.py
 ```
+
+Reads the parent's `data/processed/loan_level.parquet` (PD panel) and `analysis_base.parquet` (LGD panel).
 
 ## Files
 
 ```
 stress_test/
 ├── README.md                     # this file
-├── build_stress.py               # the full satellite-model pipeline
+├── build_stress.py               # the full two-satellite pipeline (PD + LGD)
 ├── fetch_macro_fred.py           # optional FRED refresh of the macro data
 ├── macro/macro_annual.csv        # US macro series (committed, approximate)
 └── outputs/
     ├── tables/  satellite_panel.csv · satellite_coefficients.csv · satellite_fit.csv
-    │            scenario_stressed_el.csv · triangulation.csv
-    └── charts/  satellite_fit.png · scenario_expected_loss.png
+    │            lgd_satellite_panel.csv · lgd_satellite_coefficients.csv
+    │            scenario_stressed_el.csv · scenario_stressed_pd_by_grade.csv · triangulation.csv
+    └── charts/  satellite_fit.png · scenario_expected_loss.png · stressed_pd_by_grade.png
 ```
